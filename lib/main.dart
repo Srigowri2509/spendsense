@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'theme.dart';
 import 'app_state.dart';
 import 'screens/home_screen.dart';
-import 'screens/linked_banks_screen.dart';
-import 'screens/spending_screen.dart';
-import 'screens/add_expense_screen.dart';
 import 'screens/insights_screen.dart';
-import 'screens/subscriptions_screen.dart';
+import 'screens/add_expense_screen.dart';
+import 'screens/spending_screen.dart';
+import 'screens/settings_screen.dart';
+import 'screens/linked_banks_screen.dart';
+import 'screens/puzzle_screen.dart';
+
 
 void main() => runApp(const SpendSenseApp());
 
@@ -18,26 +20,32 @@ class SpendSenseApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppScope(
       notifier: AppState()..seedDemoData(),
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'SpendSense',
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
-        themeMode: ThemeMode.system,
-        routes: {
-          '/': (context) => const RootShell(),
-          LinkedBanksScreen.route: (_) => const LinkedBanksScreen(),
-          SpendingScreen.route: (_) => const SpendingScreen(),
-          AddExpenseScreen.route: (_) => const AddExpenseScreen(),
-          InsightsScreen.route: (_) => const InsightsScreen(),
-          SubscriptionsScreen.route: (_) => const SubscriptionsScreen(),
+      child: Builder(
+        builder: (context) {
+          final app = AppScope.of(context);
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'SpendSense',
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
+            themeMode: app.themeMode,
+            routes: {
+              '/': (_) => const RootShell(),
+              InsightsScreen.route: (_) => const InsightsScreen(),
+              AddExpenseScreen.route: (_) => const AddExpenseScreen(),
+              SpendingScreen.route: (_) => const SpendingScreen(),
+              SettingsScreen.route: (_) => const SettingsScreen(),
+              LinkedBanksScreen.route: (_) => const LinkedBanksScreen(),
+              PuzzleScreen.route: (_) => const PuzzleScreen(),
+            },
+          );
         },
       ),
     );
   }
 }
 
-/// Bottom navigation shell
+/// Bottom nav: Home / Insights / Add / Spending / Settings
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
   @override
@@ -52,7 +60,7 @@ class _RootShellState extends State<RootShell> {
     InsightsScreen(),
     AddExpenseScreen(),
     SpendingScreen(),
-    LinkedBanksScreen(),
+    SettingsScreen(),
   ];
 
   @override
@@ -67,7 +75,7 @@ class _RootShellState extends State<RootShell> {
           NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: 'Insights'),
           NavigationDestination(icon: Icon(Icons.add_circle_outline), selectedIcon: Icon(Icons.add_circle), label: 'Add'),
           NavigationDestination(icon: Icon(Icons.pie_chart_outline), selectedIcon: Icon(Icons.pie_chart), label: 'Spending'),
-          NavigationDestination(icon: Icon(Icons.account_balance_outlined), selectedIcon: Icon(Icons.account_balance), label: 'Banks'),
+          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
     );
