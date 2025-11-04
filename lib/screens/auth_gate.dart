@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../main.dart';
+import '../services/auth_service.dart';
+import '../services/api_client.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -27,6 +29,7 @@ class _WelcomeLogin extends StatefulWidget {
 class _WelcomeLoginState extends State<_WelcomeLogin> {
   final nameCtrl = TextEditingController();
   final emailCtrl = TextEditingController();
+  final passwordCtrl = TextEditingController();
   final nickCtrl = TextEditingController();
   String gender = 'unspecified';
 
@@ -35,6 +38,7 @@ class _WelcomeLoginState extends State<_WelcomeLogin> {
     nameCtrl.dispose();
     emailCtrl.dispose();
     nickCtrl.dispose();
+    passwordCtrl.dispose();
     super.dispose();
   }
 
@@ -73,6 +77,8 @@ class _WelcomeLoginState extends State<_WelcomeLogin> {
             const SizedBox(height: 12),
             TextField(controller: nickCtrl, decoration: const InputDecoration(labelText: 'Nickname (optional)')),
             const SizedBox(height: 12),
+            TextField(controller: passwordCtrl, decoration: const InputDecoration(labelText: 'Password (for backend login)'), obscureText: true),
+            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: gender,
               items: const [
@@ -86,14 +92,54 @@ class _WelcomeLoginState extends State<_WelcomeLogin> {
 
             const SizedBox(height: 20),
             FilledButton.icon(
-              onPressed: () {
+              onPressed: () async {
                 final app = AppScope.of(context);
-                app.signInDemo(
-                  name: nameCtrl.text.trim().isEmpty ? 'Guest' : nameCtrl.text.trim(),
-                  email: emailCtrl.text.trim().isEmpty ? 'guest@example.com' : emailCtrl.text.trim(),
-                  nick: nickCtrl.text.trim(),
-                );
-                Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const RootShell()));
+                final email = emailCtrl.text.trim();
+                final pass = passwordCtrl.text.trim();
+                if (email.isNotEmpty && pass.isNotEmpty) {
+                  try {
+                    app.configureApi();
+                    final api = app.api;
+                    if (api != null) {
+                      final auth = AuthService(api);
+                      try {
+                        final res = await auth.login(email: email, password: pass);
+                        app.authToken = res.$1;
+                        app.isSignedIn = true;
+                        app.userEmail = email;
+                        app.userName = (res.$2['fullName'] as String?) ?? app.userName;
+                        app.userId = (res.$2['_id'] as String?) ?? app.userId;
+                        await app.initialize();
+                      } on ApiException {
+                        // If login fails, attempt to register then log in automatically
+                        final res = await auth.register(
+                          fullName: nameCtrl.text.trim().isEmpty ? 'User' : nameCtrl.text.trim(),
+                          email: email,
+                          password: pass,
+                          gender: gender,
+                          nickName: nickCtrl.text.trim(),
+                        );
+                        app.authToken = res.$1;
+                        app.isSignedIn = true;
+                        app.userEmail = email;
+                        app.userName = (res.$2['fullName'] as String?) ?? app.userName;
+                        app.userId = (res.$2['_id'] as String?) ?? app.userId;
+                        await app.initialize();
+                      }
+                    }
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sign-in failed')));
+                  }
+                } else {
+                  app.signInDemo(
+                    name: nameCtrl.text.trim().isEmpty ? 'Guest' : nameCtrl.text.trim(),
+                    email: email.isEmpty ? 'guest@example.com' : email,
+                    nick: nickCtrl.text.trim(),
+                  );
+                }
+                if (context.mounted) {
+                  Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const RootShell()));
+                }
               },
               icon: const Icon(Icons.login),
               label: const Text('Sign in / Sign up'),

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:characters/characters.dart';
+import 'services/api_client.dart';
+import 'services/endpoints.dart';
+import 'services/auth_service.dart';
+import 'services/expense_service.dart';
 
 /// Simple currency formatter (no intl)
 String formatCurrency(num n, {String symbol = '₹'}) {
@@ -92,8 +96,32 @@ class UnlockTask {
 
 // ========== APP STATE ==========
 class AppState extends ChangeNotifier {
+  // ----- API -----
+  ApiClient? _api; // lazily created
+  void configureApi({ApiClient? client}) {
+    _api = client ?? ApiClient(getAuthToken: () async => _authToken);
+  }
+
+  // Expose a read-only handle for other widgets without breaking encapsulation
+  ApiClient? get api => _api;
+
+  String? _authToken; // set after login if needed
+  set authToken(String? token) {
+    _authToken = token;
+    notifyListeners();
+  }
+
+  Future<void> initialize() async {
+    configureApi();
+    try {
+      await _loadFromBackend();
+    } catch (_) {
+      seedDemoData();
+    }
+  }
   // ----- USER PROFILE -----
   bool isSignedIn = false;
+  String? userId;
   String? userName;
   String? userEmail;
   String? userPhotoUrl;
@@ -108,8 +136,61 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _loadFromBackend() async {
+    final api = _api ?? ApiClient(getAuthToken: () async => _authToken);
+    final auth = AuthService(api);
+    final expensesApi = ExpenseService(api);
+
+    // If token exists, get current user
+    if (_authToken != null && _authToken!.isNotEmpty) {
+      final me = await auth.currentUser();
+      _applyUser(me);
+    }
+
+    // Fetch expenses (requires userId)
+    if (userId != null && userId!.isNotEmpty) {
+      final docs = await expensesApi.getAll(userId: userId!, page: 1, limit: 100);
+      _applyTransactions(docs);
+    }
+
+    notifyListeners();
+  }
+
+  void _applyUser(Map<String, dynamic> me) {
+    final user = (me['user'] as Map<String, dynamic>?) ?? me;
+    userName = (user['fullName'] as String?) ?? userName;
+    userEmail = (user['email'] as String?) ?? userEmail;
+    nickname = (user['nickName'] as String?) ?? nickname;
+    userId = (user['_id'] as String?) ?? userId;
+    isSignedIn = true;
+  }
+
+  void _applyTransactions(List<Map<String, dynamic>> docs) {
+    transactions
+      ..clear()
+      ..addAll(docs.map((d) {
+        final id = (d['_id'] as String?) ?? UniqueKey().toString();
+        final amount = ((d['amount'] as num?) ?? 0).toDouble();
+        final timeStr = (d['expenseDate'] as String?) ?? '';
+        final when = DateTime.tryParse(timeStr) ?? DateTime.now();
+        final categoryIdOrName = (d['category']?.toString() ?? 'other');
+        final category = _categoryTypeFromString(categoryIdOrName);
+        final paymentMethod = (d['paymentMethod'] as String?) ?? 'Bank';
+        final desc = (d['description'] as String?) ?? '';
+        return TransactionItem(
+          id: id,
+          time: when,
+          amount: amount,
+          category: category,
+          merchant: desc.isEmpty ? 'Expense' : desc,
+          source: paymentMethod,
+        );
+      }));
+  }
+
   void signOut() {
     isSignedIn = false;
+    userId = null;
     userName = null;
     userEmail = null;
     userPhotoUrl = null;
@@ -283,6 +364,16 @@ class AppState extends ChangeNotifier {
     final map = <Category, double>{};
     for (final c in categories) { map[c] = spentFor(c.type); }
     return map;
+  }
+
+  CategoryType _categoryTypeFromString(String raw) {
+    final v = raw.toLowerCase();
+    if (v.contains('food')) return CategoryType.food;
+    if (v.contains('travel') || v.contains('cab') || v.contains('uber')) return CategoryType.travel;
+    if (v.contains('shop') || v.contains('clothes')) return CategoryType.shopping;
+    if (v.contains('rent')) return CategoryType.rent;
+    if (v.contains('lux')) return CategoryType.luxuries;
+    return CategoryType.other;
   }
 
   double get fixedMonthlyTotal => subscriptions.where((s) => s.isFixed).fold(0.0, (a, s) => a + s.amount);

@@ -14,13 +14,25 @@ import 'screens/settings_screen.dart';
 
 void main() => runApp(const SpendSenseApp());
 
-class SpendSenseApp extends StatelessWidget {
+class SpendSenseApp extends StatefulWidget {
   const SpendSenseApp({super.key});
+  @override
+  State<SpendSenseApp> createState() => _SpendSenseAppState();
+}
+
+class _SpendSenseAppState extends State<SpendSenseApp> {
+  late final AppState app = AppState();
+
+  @override
+  void initState() {
+    super.initState();
+    app.initialize();
+  }
 
   @override
   Widget build(BuildContext context) {
     return AppScope(
-      notifier: AppState()..seedDemoData(),
+      notifier: app,
       child: Builder(
         builder: (context) {
           final app = AppScope.of(context);

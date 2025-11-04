@@ -62,7 +62,8 @@ class HomeScreen extends StatelessWidget {
             // ===== Donut + legend in a tinted panel =====
             _Panel(
               color: cs.secondaryContainer.withOpacity(
-                  Theme.of(context).brightness == Brightness.dark ? .22 : .45),
+                Theme.of(context).brightness == Brightness.dark ? .22 : .45,
+              ),
               child: Row(
                 children: [
                   SizedBox(
@@ -168,21 +169,10 @@ class HomeScreen extends StatelessWidget {
 
             const SizedBox(height: 14),
 
-            // ===== Cute pet mood (kept minimal; replace with your asset later) =====
+            // ===== Bingo / Tasks (Daily • Weekly • Monthly) =====
             _Panel(
-              child: Row(
-                children: [
-                  Expanded(
-                      child: Text(
-                    app.isOnTrackToday
-                        ? 'Your buddy is happy today! 😊'
-                        : 'Your buddy looks worried… try to slow spending 😟',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  )),
-                  const SizedBox(width: 12),
-                  Text(app.isOnTrackToday ? '🐶🐧' : '🌧️🌱', style: const TextStyle(fontSize: 24)),
-                ],
-              ),
+              title: 'BINGO — DAILY • WEEKLY • MONTHLY',
+              child: _BingoPanel(),
             ),
 
             const SizedBox(height: 14),
@@ -203,7 +193,8 @@ class HomeScreen extends StatelessWidget {
 
             // ===== Upcoming bills (top 3) =====
             if (app.upcomingBills.isNotEmpty) ...[
-              Text('Upcoming bills', style: Theme.of(context).textTheme.titleMedium),
+              Text('Upcoming bills',
+                  style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               _Panel(
                 child: Column(
@@ -451,6 +442,132 @@ Color _colorFromUsage(double used) {
     t = (used - 0.5) / 0.5;
   }
   return Color.lerp(a, b, t)!;
+}
+
+/// ======= Bingo panel (daily / weekly / monthly) =======
+class _BingoPanel extends StatefulWidget {
+  @override
+  State<_BingoPanel> createState() => _BingoPanelState();
+}
+
+class _BingoPanelState extends State<_BingoPanel> {
+  String _tab = 'daily'; // daily | weekly | monthly
+  // simple 3x3 boolean boards
+  final Map<String, List<bool>> _boards = {
+    'daily': List<bool>.filled(9, false),
+    'weekly': List<bool>.filled(9, false),
+    'monthly': List<bool>.filled(9, false),
+  };
+
+  // demo labels per tab (9 each)
+  final Map<String, List<String>> _labels = {
+    'daily': [
+      'Add expense','No-spend day','Open insights',
+      'Log breakfast','Review wallet','Skip cab',
+      'Use coupon','Drink water','Walk 3k'
+    ],
+    'weekly': [
+      'Under budget','Check bills','Update goals',
+      'Review subs','Transfer save','Plan meals',
+      'Track travel','Set reminder','Clean wallet'
+    ],
+    'monthly': [
+      'Set budgets','Reset puzzle','Credit salary',
+      'Export data','Audit spend','Tweak targets',
+      'Pay rent','Review trends','Donate spare'
+    ],
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'daily', label: Text('Daily')),
+            ButtonSegment(value: 'weekly', label: Text('Weekly')),
+            ButtonSegment(value: 'monthly', label: Text('Monthly')),
+          ],
+          selected: {_tab},
+          onSelectionChanged: (s) => setState(() => _tab = s.first),
+        ),
+        const SizedBox(height: 12),
+        GridView.builder(
+          itemCount: 9,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: .95,
+          ),
+          itemBuilder: (_, i) {
+            final checked = _boards[_tab]![i];
+            return InkWell(
+              onTap: () => _toggle(i),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: checked ? cs.primaryContainer : cs.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: checked ? cs.primary : cs.outlineVariant),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(checked ? Icons.check_circle : Icons.circle_outlined,
+                        color: checked ? cs.primary : cs.onSurfaceVariant),
+                    const SizedBox(height: 6),
+                    Text(
+                      _labels[_tab]![i],
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: checked ? cs.onPrimaryContainer : cs.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  void _toggle(int i) {
+    final app = AppScope.of(context);
+    final board = _boards[_tab]!;
+    setState(() => board[i] = !board[i]);
+
+    if (_isBingo(board)) {
+      // celebrate & count
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bingo! 🎉')),
+      );
+      app.incrementPuzzleCompleted();
+      // (optional) reset board after success:
+      // setState(() => _boards[_tab] = List<bool>.filled(9, false));
+    }
+  }
+
+  bool _isBingo(List<bool> b) {
+    const lines = <List<int>>[
+      // rows
+      [0,1,2],[3,4,5],[6,7,8],
+      // cols
+      [0,3,6],[1,4,7],[2,5,8],
+      // diags
+      [0,4,8],[2,4,6],
+    ];
+    for (final line in lines) {
+      if (b[line[0]] && b[line[1]] && b[line[2]]) return true;
+    }
+    return false;
+  }
 }
 
 /// ======= Quick actions =======
