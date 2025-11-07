@@ -1,8 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="spendwise"
-        android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+         android:name="${applicationName}"
+    android:label="SpendWise"
+    android:usesCleartextTraffic="true"
+    android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"

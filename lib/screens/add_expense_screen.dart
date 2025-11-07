@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 import 'package:flutter/material.dart';
 import '../app_state.dart';
+import '../widgets/icon_picker.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   const AddExpenseScreen({super.key});
@@ -64,15 +65,27 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: Wrap(
-                spacing: 8, runSpacing: 8,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final c in app.categories)
-                    ChoiceChip(
-                      label: Text(c.name),
-                      selected: selected == c.type,
-                      onSelected: (_) => setState(() => selected = c.type),
-                    ),
+                  Wrap(
+                    spacing: 8, runSpacing: 8,
+                    children: [
+                      for (final c in app.categories)
+                        ChoiceChip(
+                          avatar: Icon(c.icon, size: 18),
+                          label: Text(c.name),
+                          selected: selected == c.type,
+                          onSelected: (_) => setState(() => selected = c.type),
+                        ),
+                      // Add custom category button
+                      ActionChip(
+                        avatar: const Icon(Icons.add, size: 18),
+                        label: const Text('Add Category'),
+                        onPressed: () => _showAddCategoryDialog(context),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -116,21 +129,133 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
           // Save button
           FilledButton.icon(
-            onPressed: () {
+            onPressed: () async {
               final amt = double.tryParse(amountCtrl.text.trim());
               if (amt == null || amt <= 0) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid amount')));
                 return;
               }
               final merchant = merchantCtrl.text.trim().isEmpty ? 'Unknown' : merchantCtrl.text.trim();
-              app.addExpense(amount: amt, category: selected, merchant: merchant);
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added ${formatCurrency(amt)} to ${selected.name}')));
-              Navigator.pop(context);
+              
+              try {
+                await app.addExpense(amount: amt, category: selected, merchant: merchant);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added ${formatCurrency(amt)} to ${selected.name}')));
+                Navigator.pop(context);
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('Failed to add expense: ${e.toString()}'),
+                  backgroundColor: Colors.red,
+                ));
+              }
             },
             icon: const Icon(Icons.check),
             label: const Text('Save'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showAddCategoryDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    Color selectedColor = Colors.blue;
+    IconData selectedIcon = Icons.category;
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Add Custom Category'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Category Name',
+                    hintText: 'e.g., Healthcare, Education',
+                  ),
+                  textCapitalization: TextCapitalization.words,
+                ),
+                const SizedBox(height: 16),
+                const Text('Choose Icon:', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  child: IconPicker(
+                    selectedIcon: selectedIcon,
+                    onIconSelected: (icon) => setState(() => selectedIcon = icon),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text('Choose Color:', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Colors.red,
+                    Colors.pink,
+                    Colors.purple,
+                    Colors.blue,
+                    Colors.cyan,
+                    Colors.teal,
+                    Colors.green,
+                    Colors.lime,
+                    Colors.yellow,
+                    Colors.orange,
+                    Colors.brown,
+                    Colors.grey,
+                  ].map((color) => InkWell(
+                    onTap: () => setState(() => selectedColor = color),
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: selectedColor == color ? Colors.black : Colors.transparent,
+                          width: 3,
+                        ),
+                      ),
+                      child: selectedColor == color
+                          ? const Icon(Icons.check, color: Colors.white)
+                          : null,
+                    ),
+                  )).toList(),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                if (name.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a category name')),
+                  );
+                  return;
+                }
+                final app = AppScope.of(context);
+                app.addCustomCategory(name: name, color: selectedColor, icon: selectedIcon);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Added category: $name')),
+                );
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
       ),
     );
   }

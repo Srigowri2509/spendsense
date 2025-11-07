@@ -1,8 +1,10 @@
+// app_state.dart
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:characters/characters.dart';
+
+// Services
 import 'services/api_client.dart';
-import 'services/endpoints.dart';
 import 'services/auth_service.dart';
 import 'services/expense_service.dart';
 
@@ -13,7 +15,7 @@ String formatCurrency(num n, {String symbol = '₹'}) {
   return '$symbol$withSep';
 }
 
-enum CategoryType { food, travel, shopping, rent, luxuries, other }
+enum CategoryType { food, travel, shopping, rent, luxuries, other, custom }
 
 // ---------- Models ----------
 class Category {
@@ -21,7 +23,22 @@ class Category {
   final String name;
   final Color color;
   final double monthlyBudget;
-  const Category(this.type, this.name, this.color, this.monthlyBudget);
+  final String? customId; // For custom categories
+  final IconData icon;
+  
+  const Category(this.type, this.name, this.color, this.monthlyBudget, {this.customId, required this.icon});
+  
+  // Create a copy with updated values
+  Category copyWith({double? monthlyBudget, IconData? icon}) {
+    return Category(
+      type,
+      name,
+      color,
+      monthlyBudget ?? this.monthlyBudget,
+      customId: customId,
+      icon: icon ?? this.icon,
+    );
+  }
 }
 
 class TransactionItem {
@@ -97,28 +114,39 @@ class UnlockTask {
 // ========== APP STATE ==========
 class AppState extends ChangeNotifier {
   // ----- API -----
-  ApiClient? _api; // lazily created
-  void configureApi({ApiClient? client}) {
-    _api = client ?? ApiClient(getAuthToken: () async => _authToken);
-  }
+  static const String kApiBase = String.fromEnvironment(
+    'API_BASE_URL',
+    // Backend hosted on Render (without /api/v1 since endpoints already include it)
+    defaultValue: 'https://spendsense-backend-d3ti.onrender.com',
+  );
 
-  // Expose a read-only handle for other widgets without breaking encapsulation
-  ApiClient? get api => _api;
+  late final ApiClient _api = ApiClient(
+    baseUrl: kApiBase,
+    getAuthToken: () async => _authToken,
+  );
 
-  String? _authToken; // set after login if needed
+  late final AuthService _auth = AuthService(_api);
+  late final ExpenseService _expensesApi = ExpenseService(_api);
+
+  String? _authToken; // JWT
   set authToken(String? token) {
     _authToken = token;
     notifyListeners();
   }
 
   Future<void> initialize() async {
-    configureApi();
+    // If you later add secure storage, read token here and set _authToken.
     try {
+      // Attempt to load user/expenses if token is already present
       await _loadFromBackend();
+      // No demo data for real users - they start fresh
     } catch (_) {
-      seedDemoData();
+      // Backend unreachable - user will see empty state
     }
   }
+
+  ApiClient get api => _api;
+
   // ----- USER PROFILE -----
   bool isSignedIn = false;
   String? userId;
@@ -126,33 +154,63 @@ class AppState extends ChangeNotifier {
   String? userEmail;
   String? userPhotoUrl;
   String? nickname;
+  String? userPhoneNumber;
 
-  void signInDemo({required String name, required String email, String? photoUrl, String? nick}) {
+  // ---- AUTH FLOWS (REAL BACKEND) ----
+  Future<void> login(String email, String password) async {
+    final (token, user) = await _auth.login(email: email, password: password);
+    _applyTokenAndUser(token, user);
+    await _fetchExpenses();
+  }
+
+  Future<void> register({
+    required String fullName,
+    required String email,
+    required String password,
+    required String phoneNumber,
+    String? gender,
+    String? nickName,
+  }) async {
+    final (token, user) = await _auth.register(
+      fullName: fullName,
+      email: email,
+      password: password,
+      phoneNumber: phoneNumber,
+      gender: gender,
+      nickName: nickName,
+    );
+    _applyTokenAndUser(token, user);
+    await _fetchExpenses();
+  }
+
+  Future<void> refreshCurrentUser() async {
+    if (!isSignedIn || (_authToken == null || _authToken!.isEmpty)) return;
+    final me = await _auth.currentUser();
+    _applyUser(me);
+    notifyListeners();
+  }
+
+  void _applyTokenAndUser(String token, Map<String, dynamic> user) {
+    _authToken = token;
+    _applyUser(user);
     isSignedIn = true;
-    userName = name;
-    userEmail = email;
-    userPhotoUrl = photoUrl;
-    nickname = nick?.trim().isEmpty == true ? null : nick?.trim();
     notifyListeners();
   }
 
   Future<void> _loadFromBackend() async {
-    final api = _api ?? ApiClient(getAuthToken: () async => _authToken);
-    final auth = AuthService(api);
-    final expensesApi = ExpenseService(api);
-
-    // If token exists, get current user
     if (_authToken != null && _authToken!.isNotEmpty) {
-      final me = await auth.currentUser();
+      final me = await _auth.currentUser();
       _applyUser(me);
     }
-
-    // Fetch expenses (requires userId)
     if (userId != null && userId!.isNotEmpty) {
-      final docs = await expensesApi.getAll(userId: userId!, page: 1, limit: 100);
-      _applyTransactions(docs);
+      await _fetchExpenses();
     }
+  }
 
+  Future<void> _fetchExpenses() async {
+    if (userId == null || userId!.isEmpty) return;
+    final docs = await _expensesApi.getAll(userId: userId!, page: 1, limit: 200);
+    _applyTransactions(docs);
     notifyListeners();
   }
 
@@ -162,6 +220,13 @@ class AppState extends ChangeNotifier {
     userEmail = (user['email'] as String?) ?? userEmail;
     nickname = (user['nickName'] as String?) ?? nickname;
     userId = (user['_id'] as String?) ?? userId;
+    
+    // Handle phoneNumber as string or number
+    final phone = user['phoneNumber'];
+    if (phone != null) {
+      userPhoneNumber = phone.toString();
+    }
+    
     isSignedIn = true;
   }
 
@@ -190,11 +255,24 @@ class AppState extends ChangeNotifier {
 
   void signOut() {
     isSignedIn = false;
+    _authToken = null;
     userId = null;
     userName = null;
     userEmail = null;
     userPhotoUrl = null;
     nickname = null;
+    userPhoneNumber = null;
+    transactions.clear();
+    notifyListeners();
+  }
+
+  // ---- DEMO SIGN-IN (kept for testing UX without backend) ----
+  void signInDemo({required String name, required String email, String? photoUrl, String? nick}) {
+    isSignedIn = true;
+    userName = name;
+    userEmail = email;
+    userPhotoUrl = photoUrl;
+    nickname = nick?.trim().isEmpty == true ? null : nick?.trim();
     notifyListeners();
   }
 
@@ -239,6 +317,8 @@ class AppState extends ChangeNotifier {
       c.name,
       c.color,
       amount.toDouble().clamp(0, 1e12).toDouble(),
+      customId: c.customId,
+      icon: c.icon,
     );
     notifyListeners();
   }
@@ -253,6 +333,31 @@ class AppState extends ChangeNotifier {
       if (k == name || k == tFull || k == tShort) return i;
     }
     return -1;
+  }
+
+  // Add custom category
+  void addCustomCategory({
+    required String name,
+    required Color color,
+    double monthlyBudget = 0,
+    IconData icon = Icons.category,
+  }) {
+    final customId = UniqueKey().toString();
+    categories.add(Category(
+      CategoryType.custom,
+      name,
+      color,
+      monthlyBudget,
+      customId: customId,
+      icon: icon,
+    ));
+    notifyListeners();
+  }
+
+  // Remove custom category
+  void removeCustomCategory(String customId) {
+    categories.removeWhere((c) => c.customId == customId);
+    notifyListeners();
   }
 
   // ----- SAVINGS / AUTO-SAVE -----
@@ -316,11 +421,11 @@ class AppState extends ChangeNotifier {
 
   // ----- DATA -----
   List<Category> categories = [
-    const Category(CategoryType.food, 'Food', Color(0xFF5B8DEF), 20000),
-    const Category(CategoryType.travel, 'Travel', Color(0xFF67C587), 15000),
-    const Category(CategoryType.shopping, 'Shopping', Color(0xFFF2B84B), 12000),
-    const Category(CategoryType.rent, 'Rent', Color(0xFFEC6B64), 18000),
-    const Category(CategoryType.luxuries, 'Luxuries', Color(0xFF8B80F9), 8000),
+    const Category(CategoryType.food, 'Food', Color(0xFF5B8DEF), 20000, icon: Icons.restaurant),
+    const Category(CategoryType.travel, 'Travel', Color(0xFF67C587), 15000, icon: Icons.directions_car),
+    const Category(CategoryType.shopping, 'Shopping', Color(0xFFF2B84B), 12000, icon: Icons.shopping_bag),
+    const Category(CategoryType.rent, 'Rent', Color(0xFFEC6B64), 18000, icon: Icons.home),
+    const Category(CategoryType.luxuries, 'Luxuries', Color(0xFF8B80F9), 8000, icon: Icons.diamond),
   ];
 
   final List<BankAccount> banks = [
@@ -366,6 +471,81 @@ class AppState extends ChangeNotifier {
     return map;
   }
 
+  // ----- STATISTICS -----
+  double get averageDailySpending {
+    final now = DateTime.now();
+    final monthTransactions = transactions.where((t) => 
+      t.time.year == now.year && t.time.month == now.month
+    ).toList();
+    
+    if (monthTransactions.isEmpty) return 0;
+    
+    final total = monthTransactions.fold(0.0, (sum, t) => sum + t.amount);
+    return total / now.day;
+  }
+
+  TransactionItem? get highestExpense {
+    final now = DateTime.now();
+    final monthTransactions = transactions.where((t) => 
+      t.time.year == now.year && t.time.month == now.month
+    ).toList();
+    
+    if (monthTransactions.isEmpty) return null;
+    
+    return monthTransactions.reduce((a, b) => a.amount > b.amount ? a : b);
+  }
+
+  TransactionItem? get lowestExpense {
+    final now = DateTime.now();
+    final monthTransactions = transactions.where((t) => 
+      t.time.year == now.year && t.time.month == now.month
+    ).toList();
+    
+    if (monthTransactions.isEmpty) return null;
+    
+    return monthTransactions.reduce((a, b) => a.amount < b.amount ? a : b);
+  }
+
+  String? get mostFrequentMerchant {
+    final now = DateTime.now();
+    final monthTransactions = transactions.where((t) => 
+      t.time.year == now.year && t.time.month == now.month
+    ).toList();
+    
+    if (monthTransactions.isEmpty) return null;
+    
+    final merchantCounts = <String, int>{};
+    for (final t in monthTransactions) {
+      merchantCounts[t.merchant] = (merchantCounts[t.merchant] ?? 0) + 1;
+    }
+    
+    return merchantCounts.entries
+      .reduce((a, b) => a.value > b.value ? a : b)
+      .key;
+  }
+
+  Map<String, double> get spendingByDayOfWeek {
+    final now = DateTime.now();
+    final monthTransactions = transactions.where((t) => 
+      t.time.year == now.year && t.time.month == now.month
+    ).toList();
+    
+    final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final spending = <String, double>{};
+    
+    for (final day in dayNames) {
+      spending[day] = 0;
+    }
+    
+    for (final t in monthTransactions) {
+      final dayIndex = t.time.weekday - 1; // Monday = 0
+      spending[dayNames[dayIndex]] = 
+        (spending[dayNames[dayIndex]] ?? 0) + t.amount;
+    }
+    
+    return spending;
+  }
+
   CategoryType _categoryTypeFromString(String raw) {
     final v = raw.toLowerCase();
     if (v.contains('food')) return CategoryType.food;
@@ -374,6 +554,18 @@ class AppState extends ChangeNotifier {
     if (v.contains('rent')) return CategoryType.rent;
     if (v.contains('lux')) return CategoryType.luxuries;
     return CategoryType.other;
+  }
+
+  String _categoryTypeToBackend(CategoryType t) {
+    switch (t) {
+      case CategoryType.food: return 'food';
+      case CategoryType.travel: return 'travel';
+      case CategoryType.shopping: return 'shopping';
+      case CategoryType.rent: return 'rent';
+      case CategoryType.luxuries: return 'luxuries';
+      case CategoryType.other: return 'other';
+      case CategoryType.custom: return 'other'; // Map custom categories to 'other' for backend
+    }
   }
 
   double get fixedMonthlyTotal => subscriptions.where((s) => s.isFixed).fold(0.0, (a, s) => a + s.amount);
@@ -405,34 +597,111 @@ class AppState extends ChangeNotifier {
     return cand;
   }
 
-List<({Subscription sub, DateTime due})> get upcomingBills {
-  // ✅ include the field names in the generic type here
-  final list = <({Subscription sub, DateTime due})>[];
-
-  for (final s in subscriptions) {
-    list.add((sub: s, due: _nextDue(s.billingDay)));
+  List<({Subscription sub, DateTime due})> get upcomingBills {
+    final list = <({Subscription sub, DateTime due})>[];
+    for (final s in subscriptions) {
+      list.add((sub: s, due: _nextDue(s.billingDay)));
+    }
+    list.sort((a, b) => a.due.compareTo(b.due));
+    return list.take(3).toList();
   }
 
-  list.sort((a, b) => a.due.compareTo(b.due));
-  return list.take(3).toList();
-}
+  // Get subscriptions due tomorrow (for notifications - 1 day before payment)
+  List<Subscription> get subscriptionsDueTomorrow {
+    final tomorrow = DateTime.now().add(const Duration(days: 1));
+    final tomorrowDate = DateTime(tomorrow.year, tomorrow.month, tomorrow.day);
+    
+    return subscriptions.where((sub) {
+      final dueDate = _nextDue(sub.billingDay);
+      final dueDateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
+      return dueDateOnly == tomorrowDate;
+    }).toList();
+  }
 
+  // ----- ACTIONS (NOW WIRED TO BACKEND) -----
 
-  // ----- ACTIONS -----
-  void addExpense({required double amount, required CategoryType category, required String merchant, String source = 'Bank'}) {
-    transactions.add(TransactionItem(
-      id: UniqueKey().toString(),
-      time: DateTime.now(),
-      amount: amount,
-      category: category,
-      merchant: merchant,
-      source: source,
-    ));
-    _completeTask(UnlockTaskType.addExpense);
+  /// Adds an expense both on the backend and into local state.
+  Future<void> addExpense({
+    required double amount,
+    required CategoryType category,
+    required String merchant,
+    String source = 'upi',
+    List<String> tags = const [],
+  }) async {
+    // 1) Call backend
+    try {
+      await _expensesApi.addExpense({
+        'amount': amount,
+        'description': merchant,
+        'category': _categoryTypeToBackend(category),
+        'paymentMethod': source,
+        if (tags.isNotEmpty) 'tags': tags,
+      });
+      
+      // 2) Update local state after successful backend call
+      transactions.add(TransactionItem(
+        id: UniqueKey().toString(),
+        time: DateTime.now(),
+        amount: amount,
+        category: category,
+        merchant: merchant,
+        source: source,
+      ));
+      _completeTask(UnlockTaskType.addExpense);
+      notifyListeners();
+    } catch (e) {
+      // If backend fails, throw error so UI can show it
+      debugPrint('Add expense failed: $e');
+      rethrow;
+    }
+  }
+
+  /// Removes a transaction locally and tries to remove it on backend (if known).
+  Future<void> removeTransaction(String id) async {
+    // try to remove from backend (if that id is a backend id you stored)
+    try {
+      await _expensesApi.removeExpense(id);
+    } catch (_) {
+      // ignore backend errors here; keep UI responsive
+    }
+    transactions.removeWhere((t) => t.id == id);
     notifyListeners();
   }
 
-  void removeTransaction(String id) { transactions.removeWhere((t) => t.id == id); notifyListeners(); }
+  /// Updates an expense on backend (if you track its backend id) and locally.
+  Future<void> updateTransaction({
+    required String id,
+    required double amount,
+    required CategoryType category,
+    required String merchant,
+    String source = 'upi',
+    List<String> tags = const [],
+  }) async {
+    try {
+      await _expensesApi.updateExpense({
+        'expenseId': id,
+        'amount': amount,
+        'description': merchant,
+        'category': _categoryTypeToBackend(category),
+        'paymentMethod': source,
+        if (tags.isNotEmpty) 'tags': tags,
+      });
+    } catch (_) {}
+
+    final idx = transactions.indexWhere((t) => t.id == id);
+    if (idx != -1) {
+      final old = transactions[idx];
+      transactions[idx] = TransactionItem(
+        id: id,
+        time: old.time,
+        amount: amount,
+        category: category,
+        merchant: merchant,
+        source: source,
+      );
+      notifyListeners();
+    }
+  }
 
   void toggleBank(String id) {
     final b = banks.firstWhere((e) => e.id == id);

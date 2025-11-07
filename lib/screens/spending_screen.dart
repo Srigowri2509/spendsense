@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 import 'package:flutter/material.dart';
 import '../app_state.dart';
+import 'expense_detail_screen.dart';
 
 class SpendingScreen extends StatelessWidget {
   const SpendingScreen({super.key});
@@ -314,26 +315,35 @@ class _CategoryDetailPage extends StatelessWidget {
                         final t = tx[i];
                         final date =
                             '${t.time.day.toString().padLeft(2, '0')}/${t.time.month.toString().padLeft(2, '0')}';
-                        return SizedBox(
-                          height: 36,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${t.merchant}  •  $date',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: Colors.black),
-                                ),
+                        return InkWell(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => ExpenseDetailScreen(transaction: t),
                               ),
-                              Text(
-                                money(t.amount),
-                                style: const TextStyle(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.w700,
+                            );
+                          },
+                          child: SizedBox(
+                            height: 36,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${t.merchant}  •  $date',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(color: Colors.black),
+                                  ),
                                 ),
-                              ),
-                            ],
+                                Text(
+                                  money(t.amount),
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },

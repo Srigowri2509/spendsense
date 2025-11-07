@@ -22,6 +22,50 @@ class _InsightsScreenState extends State<InsightsScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
+            // Quick Actions Row
+            Row(
+              children: [
+                Expanded(
+                  child: Card(
+                    child: InkWell(
+                      onTap: () => Navigator.pushNamed(context, '/statistics'),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Icon(Icons.analytics_outlined, size: 32),
+                            const SizedBox(height: 8),
+                            Text('Statistics', style: Theme.of(context).textTheme.labelLarge),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Card(
+                    child: InkWell(
+                      onTap: () => Navigator.pushNamed(context, '/transactions'),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Icon(Icons.receipt_long_outlined, size: 32),
+                            const SizedBox(height: 8),
+                            Text('All Transactions', style: Theme.of(context).textTheme.labelLarge),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
             // Spending Mix
             Card(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

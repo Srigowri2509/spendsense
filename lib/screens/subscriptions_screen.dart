@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../app_state.dart';
+import '../widgets/empty_state.dart';
 
 class SubscriptionsScreen extends StatelessWidget {
   static const route = '/subscriptions';
@@ -12,24 +13,37 @@ class SubscriptionsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Subscriptions')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          ...state.subscriptions.map((s) => Card(
-                child: ListTile(
-                  leading: const Icon(Icons.subscriptions_outlined),
-                  title: Text(s.name),
-                  subtitle: Text('Billing day: ${s.billingDay}'),
-                  trailing: Text(formatCurrency(s.amount)),
+      body: state.subscriptions.isEmpty
+          ? EmptyState(
+              icon: Icons.subscriptions_outlined,
+              title: 'No subscriptions',
+              message: 'Track your recurring payments by adding subscriptions',
+              actionLabel: 'Add Subscription',
+              onAction: () {
+                // Navigate to add subscription (you can implement this later)
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Add subscription feature coming soon')),
+                );
+              },
+            )
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                ...state.subscriptions.map((s) => Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.subscriptions_outlined),
+                        title: Text(s.name),
+                        subtitle: Text('Billing day: ${s.billingDay}'),
+                        trailing: Text(formatCurrency(s.amount)),
+                      ),
+                    )),
+                const SizedBox(height: 12),
+                ListTile(
+                  title: const Text('Total'),
+                  trailing: Text(formatCurrency(total)),
                 ),
-              )),
-          const SizedBox(height: 12),
-          ListTile(
-            title: const Text('Total'),
-            trailing: Text(formatCurrency(total)),
-          ),
-        ],
-      ),
+              ],
+            ),
     );
   }
 }

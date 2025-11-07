@@ -88,23 +88,25 @@ class SettingsPage extends StatelessWidget {
                 onTap: () => _push(context, const _BudgetsSettingsPage()),
               ),
               _ListDivider(cs),
-              _NavRow(
-                icon: Icons.account_balance_wallet_outlined,
-                title: 'Wallets',
-                onTap: () => _push(context, const _WalletsSettingsPage()),
-              ),
-              _ListDivider(cs),
+              // TODO: Wallets - Future feature
+              // _NavRow(
+              //   icon: Icons.account_balance_wallet_outlined,
+              //   title: 'Wallets',
+              //   onTap: () => _push(context, const _WalletsSettingsPage()),
+              // ),
+              // _ListDivider(cs),
               _NavRow(
                 icon: Icons.score_outlined,
                 title: 'Scoreboard',
                 onTap: () => _push(context, const _ScoreboardPage()),
               ),
               _ListDivider(cs),
-              _NavRow(
-                icon: Icons.account_balance_outlined,
-                title: 'Linked banks',
-                onTap: () => _push(context, const _LinkedBanksPage()),
-              ),
+              // TODO: Linked Banks - Future feature
+              // _NavRow(
+              //   icon: Icons.account_balance_outlined,
+              //   title: 'Linked banks',
+              //   onTap: () => _push(context, const _LinkedBanksPage()),
+              // ),
             ]),
 
             const SizedBox(height: 8),
@@ -343,19 +345,56 @@ class _BudgetsSettingsPageState extends State<_BudgetsSettingsPage> {
                   ListTile(
                     leading: Icon(Icons.label_outline, color: c.color),
                     title: Text(c.name),
-                    trailing: SizedBox(
-                      width: 140,
-                      child: TextField(
-                        controller: _perCatCtrls[c.name],
-                        textAlign: TextAlign.right,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          hintText: '0',
-                          prefixText: '₹ ',
-                          border: OutlineInputBorder(),
-                          isDense: true,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 140,
+                          child: TextField(
+                            controller: _perCatCtrls[c.name],
+                            textAlign: TextAlign.right,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              hintText: '0',
+                              prefixText: '₹ ',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                          ),
                         ),
-                      ),
+                        // Delete button for custom categories
+                        if (c.type == CategoryType.custom && c.customId != null) ...[
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 20),
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Delete Category?'),
+                                  content: Text('Remove "${c.name}" category?'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () {
+                                        app.removeCustomCategory(c.customId!);
+                                        Navigator.pop(context);
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Deleted ${c.name}')),
+                                        );
+                                      },
+                                      child: const Text('Delete'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   if (c != app.categories.last) const Divider(height: 0),

@@ -11,6 +11,8 @@ import 'screens/insights_screen.dart';
 import 'screens/add_expense_screen.dart';
 import 'screens/spending_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/statistics_screen.dart';
+import 'screens/transactions_screen.dart';
 
 void main() => runApp(const SpendSenseApp());
 
@@ -44,6 +46,10 @@ class _SpendSenseAppState extends State<SpendSenseApp> {
             darkTheme: AppTheme.dark(),
             themeMode: app.themeMode,
             home: const AuthGate(), // decides between auth screen and the app shell
+            routes: {
+              '/statistics': (context) => const StatisticsScreen(),
+              '/transactions': (context) => const TransactionsScreen(),
+            },
           );
         },
       ),

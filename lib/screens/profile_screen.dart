@@ -23,17 +23,17 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: 8),
 
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.account_balance_wallet_outlined),
-              title: const Text('Wallets'),
-              subtitle: const Text('Deposit, withdraw to bank, set goals'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => showWalletsSheet(context),
-            ),
-          ),
-
-          const SizedBox(height: 8),
+          // TODO: Wallets - Future feature
+          // Card(
+          //   child: ListTile(
+          //     leading: const Icon(Icons.account_balance_wallet_outlined),
+          //     title: const Text('Wallets'),
+          //     subtitle: const Text('Deposit, withdraw to bank, set goals'),
+          //     trailing: const Icon(Icons.chevron_right),
+          //     onTap: () => showWalletsSheet(context),
+          //   ),
+          // ),
+          // const SizedBox(height: 8),
 
           Card(
             child: ListTile(

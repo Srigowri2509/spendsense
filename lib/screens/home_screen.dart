@@ -104,33 +104,32 @@ class HomeScreen extends StatelessWidget {
 
             const SizedBox(height: 14),
 
-            // ===== Emergency Fund card with "REMINDER" =====
-            _Panel(
-              title: 'EMERGENCY FUNDS',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: LinearProgressIndicator(
-                      value: emgPct,
-                      minHeight: 14,
-                      backgroundColor: cs.surfaceContainerHighest,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  _Reminder(
-                    text: emg.target <= 0
-                        ? 'Set a goal to start tracking your emergency fund.'
-                        : (emg.balance >= emg.target)
-                            ? 'Goal reached! Great job building your cushion.'
-                            : 'You need ${money(emg.target - emg.balance)} more to complete the goal.',
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 14),
+            // TODO: Emergency Fund / Wallets - Future feature
+            // _Panel(
+            //   title: 'EMERGENCY FUNDS',
+            //   child: Column(
+            //     crossAxisAlignment: CrossAxisAlignment.start,
+            //     children: [
+            //       ClipRRect(
+            //         borderRadius: BorderRadius.circular(12),
+            //         child: LinearProgressIndicator(
+            //           value: emgPct,
+            //           minHeight: 14,
+            //           backgroundColor: cs.surfaceContainerHighest,
+            //         ),
+            //       ),
+            //       const SizedBox(height: 10),
+            //       _Reminder(
+            //         text: emg.target <= 0
+            //             ? 'Set a goal to start tracking your emergency fund.'
+            //             : (emg.balance >= emg.target)
+            //                 ? 'Goal reached! Great job building your cushion.'
+            //                 : 'You need ${money(emg.target - emg.balance)} more to complete the goal.',
+            //       ),
+            //     ],
+            //   ),
+            // ),
+            // const SizedBox(height: 14),
 
             // ===== Money left dial (green -> red) with REMINDER =====
             _Panel(
@@ -459,22 +458,22 @@ class _BingoPanelState extends State<_BingoPanel> {
     'monthly': List<bool>.filled(9, false),
   };
 
-  // demo labels per tab (9 each)
+  // Task labels per tab (9 each)
   final Map<String, List<String>> _labels = {
     'daily': [
-      'Add expense','No-spend day','Open insights',
-      'Log breakfast','Review wallet','Skip cab',
-      'Use coupon','Drink water','Walk 3k'
+      'Add expense','No-spend day','Check insights',
+      'Review budget','Skip delivery','Use cash',
+      'Compare prices','Pack lunch','Walk instead'
     ],
     'weekly': [
-      'Under budget','Check bills','Update goals',
-      'Review subs','Transfer save','Plan meals',
-      'Track travel','Set reminder','Clean wallet'
+      'Stay under budget','Review bills','Update goals',
+      'Check subscriptions','Plan meals','Track spending',
+      'Set reminders','Review categories','Save receipt'
     ],
     'monthly': [
-      'Set budgets','Reset puzzle','Credit salary',
-      'Export data','Audit spend','Tweak targets',
-      'Pay rent','Review trends','Donate spare'
+      'Set budgets','Review trends','Pay bills',
+      'Check savings','Audit expenses','Update targets',
+      'Review subscriptions','Plan next month','Celebrate wins'
     ],
   };
 
@@ -538,19 +537,49 @@ class _BingoPanelState extends State<_BingoPanel> {
     );
   }
 
-  void _toggle(int i) {
+  void _toggle(int i) async {
     final app = AppScope.of(context);
     final board = _boards[_tab]!;
-    setState(() => board[i] = !board[i]);
+    final taskName = _labels[_tab]![i];
+    final isChecked = board[i];
+
+    // If unchecking, just uncheck without confirmation
+    if (isChecked) {
+      setState(() => board[i] = false);
+      return;
+    }
+
+    // If checking, ask for confirmation
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Complete Task?'),
+        content: Text('Did you actually complete:\n\n"$taskName"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Yes, I did it!'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => board[i] = true);
 
     if (_isBingo(board)) {
       // celebrate & count
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bingo! 🎉')),
+        const SnackBar(content: Text('Bingo! 🎉 You completed a line!')),
       );
       app.incrementPuzzleCompleted();
-      // (optional) reset board after success:
-      // setState(() => _boards[_tab] = List<bool>.filled(9, false));
+      // Reset board after success so they can play again
+      setState(() => _boards[_tab] = List<bool>.filled(9, false));
     }
   }
 
