@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 import 'package:flutter/material.dart';
 import '../app_state.dart'; // formatCurrency + AppScope
+import 'sms_settings_screen.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -88,11 +89,12 @@ class SettingsPage extends StatelessWidget {
                 onTap: () => _push(context, const _BudgetsSettingsPage()),
               ),
               _ListDivider(cs),
-              // TODO: Wallets - Future feature
+              // TODO: SMS Import - Requires platform-specific implementation
               // _NavRow(
-              //   icon: Icons.account_balance_wallet_outlined,
-              //   title: 'Wallets',
-              //   onTap: () => _push(context, const _WalletsSettingsPage()),
+              //   icon: Icons.sms_outlined,
+              //   title: 'SMS Import',
+              //   subtitle: 'Auto-import from transaction SMS',
+              //   onTap: () => _push(context, const SmsSettingsScreen()),
               // ),
               // _ListDivider(cs),
               _NavRow(
@@ -152,13 +154,15 @@ class _NavCard extends StatelessWidget {
 class _NavRow extends StatelessWidget {
   final IconData icon;
   final String title;
+  final String? subtitle;
   final VoidCallback onTap;
-  const _NavRow({required this.icon, required this.title, required this.onTap});
+  const _NavRow({required this.icon, required this.title, this.subtitle, required this.onTap});
   @override
   Widget build(BuildContext context) {
     return ListTile(
       leading: Icon(icon),
       title: Text(title),
+      subtitle: subtitle != null ? Text(subtitle!) : null,
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
     );

@@ -628,31 +628,36 @@ class AppState extends ChangeNotifier {
     String source = 'upi',
     List<String> tags = const [],
   }) async {
-    // 1) Call backend
-    try {
-      await _expensesApi.addExpense({
-        'amount': amount,
-        'description': merchant,
-        'category': _categoryTypeToBackend(category),
-        'paymentMethod': source,
-        if (tags.isNotEmpty) 'tags': tags,
-      });
-      
-      // 2) Update local state after successful backend call
-      transactions.add(TransactionItem(
-        id: UniqueKey().toString(),
-        time: DateTime.now(),
-        amount: amount,
-        category: category,
-        merchant: merchant,
-        source: source,
-      ));
-      _completeTask(UnlockTaskType.addExpense);
-      notifyListeners();
-    } catch (e) {
-      // If backend fails, throw error so UI can show it
-      debugPrint('Add expense failed: $e');
-      rethrow;
+    // 1) Add to local state first for immediate feedback
+    final newTransaction = TransactionItem(
+      id: UniqueKey().toString(),
+      time: DateTime.now(),
+      amount: amount,
+      category: category,
+      merchant: merchant,
+      source: source,
+    );
+    
+    transactions.add(newTransaction);
+    _completeTask(UnlockTaskType.addExpense);
+    notifyListeners();
+    
+    // 2) Try to sync with backend (if user is signed in)
+    if (isSignedIn && userId != null && userId!.isNotEmpty) {
+      try {
+        await _expensesApi.addExpense({
+          'userId': userId,
+          'amount': amount,
+          'description': merchant,
+          'category': _categoryTypeToBackend(category),
+          'paymentMethod': source,
+          if (tags.isNotEmpty) 'tags': tags,
+        });
+      } catch (e) {
+        // Backend sync failed, but local state is already updated
+        debugPrint('Backend sync failed: $e');
+        // Don't throw - allow offline usage
+      }
     }
   }
 
