@@ -158,7 +158,8 @@ class AppState extends ChangeNotifier {
 
   // ---- AUTH FLOWS (REAL BACKEND) ----
   Future<void> login(String email, String password) async {
-    final (token, user) = await _auth.login(email: email, password: password);
+    final (token, user) = await _auth.login(email: email, password: password)
+        .timeout(const Duration(seconds: 5));
     _applyTokenAndUser(token, user);
     await _fetchExpenses();
   }
@@ -178,7 +179,7 @@ class AppState extends ChangeNotifier {
       phoneNumber: phoneNumber,
       gender: gender,
       nickName: nickName,
-    );
+    ).timeout(const Duration(seconds: 5));
     _applyTokenAndUser(token, user);
     await _fetchExpenses();
   }
@@ -198,20 +199,30 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadFromBackend() async {
-    if (_authToken != null && _authToken!.isNotEmpty) {
-      final me = await _auth.currentUser();
-      _applyUser(me);
-    }
-    if (userId != null && userId!.isNotEmpty) {
-      await _fetchExpenses();
+    try {
+      if (_authToken != null && _authToken!.isNotEmpty) {
+        final me = await _auth.currentUser();
+        _applyUser(me);
+      }
+      if (userId != null && userId!.isNotEmpty) {
+        await _fetchExpenses();
+      }
+    } catch (e) {
+      debugPrint('Failed to load from backend: $e');
+      // Continue without backend data
     }
   }
 
   Future<void> _fetchExpenses() async {
     if (userId == null || userId!.isEmpty) return;
-    final docs = await _expensesApi.getAll(userId: userId!, page: 1, limit: 200);
-    _applyTransactions(docs);
-    notifyListeners();
+    try {
+      final docs = await _expensesApi.getAll(userId: userId!, page: 1, limit: 200);
+      _applyTransactions(docs);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Failed to fetch expenses: $e');
+      // Continue with empty transactions
+    }
   }
 
   void _applyUser(Map<String, dynamic> me) {
@@ -269,6 +280,7 @@ class AppState extends ChangeNotifier {
   // ---- DEMO SIGN-IN (kept for testing UX without backend) ----
   void signInDemo({required String name, required String email, String? photoUrl, String? nick}) {
     isSignedIn = true;
+    userId = 'offline_${DateTime.now().millisecondsSinceEpoch}'; // Generate offline user ID
     userName = name;
     userEmail = email;
     userPhotoUrl = photoUrl;

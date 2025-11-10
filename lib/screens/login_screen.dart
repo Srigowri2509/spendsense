@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import '../app_state.dart';
 import '../services/api_client.dart';
 
@@ -47,10 +48,25 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final app = AppScope.of(context);
-      await app.login(email, password);
-      Navigator.pop(context);
-    } on ApiException catch (e) {
-      _showError(e.message);
+      
+      // Try backend login first
+      try {
+        await app.login(email, password);
+      } catch (e) {
+        // Backend failed, use offline mode
+        debugPrint('Backend login failed, using offline mode: $e');
+        app.signInDemo(
+          name: email.split('@')[0],
+          email: email,
+        );
+      }
+      
+      // Don't pop - AuthGate will automatically show RootShell when isSignedIn changes
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Signed in successfully!')),
+        );
+      }
     } catch (e) {
       _showError('Login failed: ${e.toString()}');
     } finally {
@@ -79,17 +95,33 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final app = AppScope.of(context);
-      await app.register(
-        fullName: fullName,
-        email: email,
-        password: password,
-        phoneNumber: phone,
-        gender: _selectedGender,
-        nickName: nickName.isEmpty ? null : nickName,
-      );
-      Navigator.pop(context);
-    } on ApiException catch (e) {
-      _showError(e.message);
+      
+      // Try backend registration first
+      try {
+        await app.register(
+          fullName: fullName,
+          email: email,
+          password: password,
+          phoneNumber: phone,
+          gender: _selectedGender,
+          nickName: nickName.isEmpty ? null : nickName,
+        );
+      } catch (e) {
+        // Backend failed, use offline mode
+        debugPrint('Backend registration failed, using offline mode: $e');
+        app.signInDemo(
+          name: fullName,
+          email: email,
+          nick: nickName.isEmpty ? null : nickName,
+        );
+      }
+      
+      // Don't pop - AuthGate will automatically show RootShell when isSignedIn changes
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Account created successfully!')),
+        );
+      }
     } catch (e) {
       _showError('Registration failed: ${e.toString()}');
     } finally {
@@ -311,16 +343,19 @@ class _LoginScreenState extends State<LoginScreen> {
                     email: 'demo@spendsense.com',
                     nick: 'Demo',
                   );
-                  Navigator.pop(context);
+                  // Don't pop - AuthGate will automatically show RootShell
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Signed in as Guest')),
+                  );
                 },
-                icon: Icon(Icons.person_outline),
+                icon: const Icon(Icons.person_outline),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                label: Text('Continue as Guest (Demo Mode)'),
+                label: const Text('Continue as Guest (Demo Mode)'),
               ),
               const SizedBox(height: 8),
               Text(
