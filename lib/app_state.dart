@@ -310,14 +310,58 @@ class AppState extends ChangeNotifier {
   bool notifWeeklyInsights = true;
   String currencySymbol = '₹';
   void setThemeMode(ThemeMode mode) { themeMode = mode; notifyListeners(); }
-  void toggleNotifBudget(bool v) { notifBudgetAlerts = v; notifyListeners(); }
-  void toggleWeeklyInsights(bool v) { notifWeeklyInsights = v; notifyListeners(); if (v) _completeTask(UnlockTaskType.enableWeeklyInsights); }
+  void toggleNotifBudget(bool v) {
+    notifBudgetAlerts = v;
+    _markBingoEvent('reminders_set', notify: false);
+    notifyListeners();
+  }
+  void toggleWeeklyInsights(bool v) {
+    notifWeeklyInsights = v;
+    _markBingoEvent('reminders_set', notify: false);
+    notifyListeners();
+    if (v) _completeTask(UnlockTaskType.enableWeeklyInsights);
+  }
 
   // ----- BUDGETS -----
-  double monthlyBudget = 50000;
+  bool hasCompletedOnboarding = false;
+
+  double monthlyBudget = 0;
   void setMonthlyBudget(int amount) {
     monthlyBudget = amount.toDouble().clamp(0, double.infinity).toDouble();
+    if (monthlyBudget > 0 && !hasCompletedOnboarding) {
+      hasCompletedOnboarding = true;
+    }
+    _markBingoEvent('budget_updated', notify: false);
     notifyListeners();
+  }
+
+  bool get needsOnboarding => !hasCompletedOnboarding || monthlyBudget <= 0;
+
+  void markOnboardingComplete() {
+    if (!hasCompletedOnboarding) {
+      hasCompletedOnboarding = true;
+      notifyListeners();
+    }
+  }
+
+  void markBingoEvent(String id, {DateTime? at}) {
+    _markBingoEvent(id, at: at, notify: true);
+  }
+
+  DateTime? lastBingoEvent(String id) => _bingoEvents[id];
+
+  bool didEventToday(String id) => _didEventOn(id, DateTime.now());
+
+  bool didEventWithin(String id, Duration window) {
+    final ts = _bingoEvents[id];
+    if (ts == null) return false;
+    return DateTime.now().difference(ts) <= window;
+  }
+
+  bool _didEventOn(String id, DateTime day) {
+    final ts = _bingoEvents[id];
+    if (ts == null) return false;
+    return _isSameDay(ts, day);
   }
 
   void setCategoryBudget(String key, int amount) {
@@ -332,6 +376,7 @@ class AppState extends ChangeNotifier {
       customId: c.customId,
       icon: c.icon,
     );
+    _markBingoEvent('budget_updated', notify: false);
     notifyListeners();
   }
 
@@ -363,12 +408,14 @@ class AppState extends ChangeNotifier {
       customId: customId,
       icon: icon,
     ));
+    _markBingoEvent('categories_reviewed', notify: false);
     notifyListeners();
   }
 
   // Remove custom category
   void removeCustomCategory(String customId) {
     categories.removeWhere((c) => c.customId == customId);
+    _markBingoEvent('categories_reviewed', notify: false);
     notifyListeners();
   }
 
@@ -376,8 +423,17 @@ class AppState extends ChangeNotifier {
   double monthlySavingsTarget = 20000;
   double autoSavePercent = 20; // % of salary to stash
   int salaryCreditDay = 1;
-  void setMonthlySavingsTarget(double v) { monthlySavingsTarget = v < 0 ? 0 : v; notifyListeners(); _completeTask(UnlockTaskType.setSavingsTarget); }
-  void setAutoSavePercent(double p) { autoSavePercent = p.clamp(0, 100).toDouble(); notifyListeners(); }
+  void setMonthlySavingsTarget(double v) {
+    monthlySavingsTarget = v < 0 ? 0 : v;
+    _markBingoEvent('goals_updated', notify: false);
+    notifyListeners();
+    _completeTask(UnlockTaskType.setSavingsTarget);
+  }
+  void setAutoSavePercent(double p) {
+    autoSavePercent = p.clamp(0, 100).toDouble();
+    _markBingoEvent('goals_updated', notify: false);
+    notifyListeners();
+  }
 
   // ----- REWARDS & PUZZLE -----
   int rewardPoints = 0;
@@ -402,6 +458,8 @@ class AppState extends ChangeNotifier {
     UnlockTask(type: UnlockTaskType.markSubscriptionFixed, title: 'Mark a subscription “fixed”', hint: 'Toggle “Count as fixed”'),
   ];
   int get tasksDone => unlockTasks.where((t) => t.done).length;
+
+  final Map<String, DateTime> _bingoEvents = {};
 
   void _completeTask(UnlockTaskType type) {
     for (final t in unlockTasks) {
@@ -432,12 +490,24 @@ class AppState extends ChangeNotifier {
   }
 
   // ----- DATA -----
+  static const List<String> _deliveryKeywords = [
+    'swiggy',
+    'zomato',
+    'uber eats',
+    'blinkit',
+    'instamart',
+    'dunzo',
+    'zepto',
+    'dominos',
+    'pizza hut',
+  ];
+
   List<Category> categories = [
-    const Category(CategoryType.food, 'Food', Color(0xFF5B8DEF), 20000, icon: Icons.restaurant),
-    const Category(CategoryType.travel, 'Travel', Color(0xFF67C587), 15000, icon: Icons.directions_car),
-    const Category(CategoryType.shopping, 'Shopping', Color(0xFFF2B84B), 12000, icon: Icons.shopping_bag),
-    const Category(CategoryType.rent, 'Rent', Color(0xFFEC6B64), 18000, icon: Icons.home),
-    const Category(CategoryType.luxuries, 'Luxuries', Color(0xFF8B80F9), 8000, icon: Icons.diamond),
+    const Category(CategoryType.food, 'Food', Color(0xFF5B8DEF), 0, icon: Icons.restaurant),
+    const Category(CategoryType.travel, 'Travel', Color(0xFF67C587), 0, icon: Icons.directions_car),
+    const Category(CategoryType.shopping, 'Shopping', Color(0xFFF2B84B), 0, icon: Icons.shopping_bag),
+    const Category(CategoryType.rent, 'Rent', Color(0xFFEC6B64), 0, icon: Icons.home),
+    const Category(CategoryType.luxuries, 'Luxuries', Color(0xFF8B80F9), 0, icon: Icons.diamond),
   ];
 
   final List<BankAccount> banks = [
@@ -651,6 +721,10 @@ class AppState extends ChangeNotifier {
     );
     
     transactions.add(newTransaction);
+    _markBingoEvent('expense_added', notify: false);
+    if (source.toLowerCase() == 'cash') {
+      _markBingoEvent('used_cash', notify: false);
+    }
     _completeTask(UnlockTaskType.addExpense);
     notifyListeners();
     
@@ -729,6 +803,7 @@ class AppState extends ChangeNotifier {
 
   void addSubscription({required String name, required double amount, required int billingDay, bool isFixed = true}) {
     subscriptions.add(Subscription(id: UniqueKey().toString(), name: name, amount: amount, billingDay: billingDay, isFixed: isFixed));
+    _markBingoEvent('subscriptions_viewed', notify: false);
     _completeTask(UnlockTaskType.addSubscription);
     notifyListeners();
   }
@@ -736,6 +811,7 @@ class AppState extends ChangeNotifier {
   void setSubscriptionFixed(String id, bool v) {
     final s = subscriptions.firstWhere((e) => e.id == id);
     s.isFixed = v;
+    _markBingoEvent('subscriptions_viewed', notify: false);
     if (v) _completeTask(UnlockTaskType.markSubscriptionFixed);
     notifyListeners();
   }
@@ -743,6 +819,7 @@ class AppState extends ChangeNotifier {
   void setWalletTarget(String id, double amount) {
     final w = walletById(id);
     w.target = amount.clamp(0, 1e12).toDouble();
+    _markBingoEvent('goals_updated', notify: false);
     notifyListeners();
   }
 
@@ -750,6 +827,7 @@ class AppState extends ChangeNotifier {
     if (amount <= 0) return;
     final w = walletById(id);
     w.balance += amount;
+    _markBingoEvent('goals_updated', notify: false);
     notifyListeners();
   }
 
@@ -757,6 +835,7 @@ class AppState extends ChangeNotifier {
     if (amount <= 0) return;
     final w = walletById(id);
     w.balance = (w.balance - amount).clamp(0, double.infinity).toDouble();
+    _markBingoEvent('goals_updated', notify: false);
     notifyListeners();
   }
 
@@ -771,6 +850,9 @@ class AppState extends ChangeNotifier {
     transactions.clear();
     rewardPoints = 0;
     resetPuzzle();
+    _bingoEvents.clear();
+    monthlyBudget = 0;
+    hasCompletedOnboarding = false;
     notifyListeners();
   }
 
@@ -793,9 +875,81 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  bool get didAddExpenseToday => transactionsToday.isNotEmpty;
+  bool get noSpendToday => transactionsToday.isEmpty;
+  bool get usedCashToday =>
+      transactionsToday.any((t) => t.source.toLowerCase() == 'cash');
+  bool get avoidedDeliveryToday => !hadDeliveryInLastDays(1);
+
+  List<TransactionItem> get transactionsToday =>
+      transactionsOn(DateTime.now());
+
+  List<TransactionItem> transactionsOn(DateTime day) {
+    return transactions
+        .where((t) => _isSameDay(t.time, day))
+        .toList(growable: false);
+  }
+
+  List<TransactionItem> transactionsInRange(DateTime start, DateTime end) {
+    return transactions
+        .where((t) =>
+            !t.time.isBefore(start) &&
+            !t.time.isAfter(end))
+        .toList(growable: false);
+  }
+
+  double spentInRange(DateTime start, DateTime end,
+      {CategoryType? category}) {
+    return transactionsInRange(start, end)
+        .where((t) => category == null || t.category == category)
+        .fold(0.0, (sum, t) => sum + t.amount);
+  }
+
+  double spentInLastDays(int days, {CategoryType? category}) {
+    final now = DateTime.now();
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    final start =
+        DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
+    return spentInRange(start, end, category: category);
+  }
+
+  bool hadDeliveryInLastDays(int days) {
+    final now = DateTime.now();
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    final start =
+        DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
+    return transactionsInRange(start, end)
+        .any((t) => _isDeliveryMerchant(t.merchant));
+  }
+
+  bool isUnderBudgetForPeriod(int days) {
+    if (monthlyBudget <= 0) return false;
+    final now = DateTime.now();
+    final daysInMonth = DateUtils.getDaysInMonth(now.year, now.month);
+    final expected = (monthlyBudget / daysInMonth) * days;
+    return spentInLastDays(days) <= expected;
+  }
+
   // ---- Bingo / Scoreboard ----
   int puzzlesCompleted = 0;
   void incrementPuzzleCompleted() { puzzlesCompleted += 1; notifyListeners(); }
+
+  void _markBingoEvent(String id, {DateTime? at, bool notify = true}) {
+    final stamp = (at ?? DateTime.now()).toLocal();
+    final previous = _bingoEvents[id];
+    if (previous != null && previous.isAtSameMomentAs(stamp)) return;
+    _bingoEvents[id] = stamp;
+    if (notify) notifyListeners();
+  }
+
+  bool _isDeliveryMerchant(String merchant) {
+    final lower = merchant.toLowerCase();
+    return _deliveryKeywords.any((kw) => lower.contains(kw));
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
 }
 
 class AppScope extends InheritedNotifier<AppState> {

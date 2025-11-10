@@ -117,6 +117,7 @@ class TransactionImportService {
           _importedSmsIds.add(parsed.smsId!);
         }
 
+        _appState.markBingoEvent('receipt_saved');
         successful++;
       } catch (e) {
         failed++;

@@ -3,8 +3,22 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import 'expense_detail_screen.dart';
 
-class SpendingScreen extends StatelessWidget {
+class SpendingScreen extends StatefulWidget {
   const SpendingScreen({super.key});
+
+  @override
+  State<SpendingScreen> createState() => _SpendingScreenState();
+}
+
+class _SpendingScreenState extends State<SpendingScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      AppScope.of(context).markBingoEvent('spending_viewed');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,6 +73,15 @@ class _NotebookTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final borderColor = isDark ? cs.outline : Colors.black87;
+    final headerColor = isDark ? cs.surfaceVariant.withOpacity(.7) : Colors.white;
+    final headerTextColor = cs.onSurface;
+    final tileColor = isDark ? _tint(category.color, .28) : _tint(category.color, .92);
+    final pageColor = isDark ? _tint(category.color, .22) : _tint(category.color, .82);
+    final accentColor = cs.onSurface;
     String money(num n) => formatCurrency(n, symbol: app.currencySymbol);
 
     // recent 3 for this category
@@ -84,9 +107,9 @@ class _NotebookTile extends StatelessWidget {
       width: width,
       height: tileH,
       decoration: BoxDecoration(
-        color: _tint(category.color, .92), // light bg across whole tile
+        color: tileColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.black, width: 1.6),
+        border: Border.all(color: borderColor, width: 1.4),
       ),
       child: Column(
         children: [
@@ -97,13 +120,14 @@ class _NotebookTile extends StatelessWidget {
               height: 32,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: headerColor,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.black, width: 1.4),
+                border: Border.all(color: borderColor, width: 1.2),
               ),
               child: Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
+                  color: headerTextColor,
                   letterSpacing: 1.2,
                   fontWeight: FontWeight.w800,
                 ),
@@ -116,7 +140,10 @@ class _NotebookTile extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
               child: _LedgerPage(
-                pageColor: _tint(category.color, .82),
+                pageColor: pageColor,
+                borderColor: borderColor,
+                textColor: accentColor.withOpacity(.9),
+                accentColor: accentColor,
                 rows: _padRows(recent, ledgerRows),
                 totalText: money(total),
                 rowCount: ledgerRows,
@@ -157,11 +184,17 @@ class _NotebookTile extends StatelessWidget {
 
 class _LedgerPage extends StatelessWidget {
   final Color pageColor;
+  final Color borderColor;
+  final Color textColor;
+  final Color accentColor;
   final List<_RowItem> rows; // must be rowCount length
   final int rowCount;
   final String totalText;
   const _LedgerPage({
     required this.pageColor,
+    required this.borderColor,
+    required this.textColor,
+    required this.accentColor,
     required this.rows,
     required this.totalText,
     required this.rowCount,
@@ -173,7 +206,7 @@ class _LedgerPage extends StatelessWidget {
       decoration: BoxDecoration(
         color: pageColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black, width: 1.4),
+        border: Border.all(color: borderColor, width: 1.4),
       ),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Column(
@@ -182,9 +215,9 @@ class _LedgerPage extends StatelessWidget {
           for (final r in rows)
             Expanded(
               child: Container(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   border: Border(
-                    bottom: BorderSide(color: Colors.black, width: 1.3),
+                    bottom: BorderSide(color: borderColor, width: 1.3),
                   ),
                 ),
                 child: Row(
@@ -194,13 +227,13 @@ class _LedgerPage extends StatelessWidget {
                         r.left,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.black, fontSize: 13),
+                        style: TextStyle(color: textColor, fontSize: 13),
                       ),
                     ),
                     Text(
                       r.right,
-                      style: const TextStyle(
-                        color: Colors.black,
+                      style: TextStyle(
+                        color: accentColor,
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -213,26 +246,26 @@ class _LedgerPage extends StatelessWidget {
           // Thick separator
           Container(
             height: 18,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               border: Border(
-                top: BorderSide(color: Colors.black, width: 2),
+                top: BorderSide(color: borderColor, width: 2),
               ),
             ),
           ),
 
           // TOTAL line (aligned right)
           Row(
-            children: const [
+            children: [
               Text('TOTAL:',
-                  style: TextStyle(color: Colors.black, fontWeight: FontWeight.w800)),
-              Spacer(),
+                  style: TextStyle(color: accentColor, fontWeight: FontWeight.w800)),
+              const Spacer(),
             ],
           ),
           Align(
             alignment: Alignment.centerRight,
             child: Text(
               totalText,
-              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w800),
+              style: TextStyle(color: accentColor, fontWeight: FontWeight.w800),
             ),
           ),
         ],
@@ -250,6 +283,15 @@ class _CategoryDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final borderColor = isDark ? cs.outline : Colors.black87;
+    final headerColor = isDark ? cs.surfaceVariant.withOpacity(.7) : Colors.white;
+    final headerTextColor = cs.onSurface;
+    final tileColor = isDark ? _tint(category.color, .24) : _tint(category.color, .86);
+    final textColor = cs.onSurface;
+    final accentColor = cs.onSurface;
     String money(num n) => formatCurrency(n, symbol: app.currencySymbol);
 
     final title = switch (category.type) {
@@ -258,7 +300,6 @@ class _CategoryDetailPage extends StatelessWidget {
       _ => category.name.toUpperCase(),
     };
 
-    // All transactions for this category (newest first)
     final tx = app.transactions
         .where((t) => t.category == category.type)
         .toList()
@@ -267,38 +308,40 @@ class _CategoryDetailPage extends StatelessWidget {
     final total = app.spentFor(category.type);
 
     return Scaffold(
-      appBar: AppBar(title: Text(category.name)),
+      appBar: AppBar(
+        title: Text(category.name),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: Column(
         children: [
-          // Ledger header (same vibe as tile title)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Container(
               height: 40,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: headerColor,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.black, width: 1.6),
+                border: Border.all(color: borderColor, width: 1.4),
               ),
               child: Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
+                  color: headerTextColor,
                   letterSpacing: 1.4,
                   fontWeight: FontWeight.w900,
                 ),
               ),
             ),
           ),
-
-          // Big page with all rows
           Expanded(
             child: Container(
               margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               decoration: BoxDecoration(
-                color: _tint(category.color, .86),
+                color: tileColor,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.black, width: 1.6),
+                border: Border.all(color: borderColor, width: 1.4),
               ),
               child: Column(
                 children: [
@@ -306,10 +349,10 @@ class _CategoryDetailPage extends StatelessWidget {
                     child: ListView.separated(
                       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                       itemCount: tx.length,
-                      separatorBuilder: (_, __) => const Divider(
+                      separatorBuilder: (_, __) => Divider(
                         height: 0,
-                        thickness: 1.3,
-                        color: Colors.black,
+                        thickness: 1.2,
+                        color: borderColor.withOpacity(.3),
                       ),
                       itemBuilder: (_, i) {
                         final t = tx[i];
@@ -332,13 +375,13 @@ class _CategoryDetailPage extends StatelessWidget {
                                     '${t.merchant}  •  $date',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.black),
+                                    style: TextStyle(color: textColor),
                                   ),
                                 ),
                                 Text(
                                   money(t.amount),
-                                  style: const TextStyle(
-                                    color: Colors.black,
+                                  style: TextStyle(
+                                    color: accentColor,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -349,13 +392,11 @@ class _CategoryDetailPage extends StatelessWidget {
                       },
                     ),
                   ),
-
-                  // Thick line + TOTAL block
                   Container(
                     height: 18,
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       border: Border(
-                        top: BorderSide(color: Colors.black, width: 2),
+                        top: BorderSide(color: borderColor, width: 2),
                       ),
                     ),
                   ),
@@ -363,14 +404,16 @@ class _CategoryDetailPage extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                     child: Row(
                       children: [
-                        const Text('TOTAL:',
-                            style: TextStyle(
-                                color: Colors.black, fontWeight: FontWeight.w900)),
+                        Text(
+                          'TOTAL:',
+                          style: TextStyle(
+                              color: accentColor, fontWeight: FontWeight.w900),
+                        ),
                         const Spacer(),
                         Text(
                           money(total),
-                          style: const TextStyle(
-                              color: Colors.black, fontWeight: FontWeight.w900),
+                          style: TextStyle(
+                              color: accentColor, fontWeight: FontWeight.w900),
                         ),
                       ],
                     ),

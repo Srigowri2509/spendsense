@@ -2,6 +2,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../app_state.dart';
+import '../widgets/colorful_background.dart';
 
 class InsightsScreen extends StatefulWidget {
   const InsightsScreen({super.key});
@@ -13,15 +14,26 @@ class _InsightsScreenState extends State<InsightsScreen> {
   bool showBar = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      AppScope.of(context).markBingoEvent('insights_viewed');
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     String money(num n) => formatCurrency(n, symbol: app.currencySymbol);
 
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
+    return ColorfulBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: [
             // Quick Actions Row
             Row(
               children: [
@@ -163,7 +175,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
             // Yearly trend (bar)
             _YearlyTrend(),
-          ],
+            ],
+          ),
         ),
       ),
     );

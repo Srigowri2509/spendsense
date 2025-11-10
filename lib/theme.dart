@@ -27,7 +27,7 @@ class AppTheme {
             secondary: lilac,
             tertiary: teal,
             surface: const Color(0xFF1E2225),
-            background: const Color(0xFF14181A),
+            background: const Color(0xFFf0e7ce),
           );
 
   static ThemeData light() => _base(_lightScheme());

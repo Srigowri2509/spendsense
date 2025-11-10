@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 import 'package:flutter/material.dart';
 import '../app_state.dart'; // formatCurrency + AppScope
+import '../widgets/colorful_background.dart';
 import 'sms_settings_screen.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -12,11 +13,13 @@ class SettingsPage extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
+    return ColorfulBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: [
             Text('Settings', style: theme.textTheme.headlineMedium),
 
             const SizedBox(height: 12),
@@ -130,7 +133,8 @@ class SettingsPage extends StatelessWidget {
                 },
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter_sms_inbox/flutter_sms_inbox.dart' as inbox;
 import 'package:permission_handler/permission_handler.dart';
 
 class SmsPermissionException implements Exception {
@@ -18,13 +21,18 @@ class SmsMessage {
 }
 
 class SmsService {
-  // Check if SMS permission is granted
+  const SmsService();
+
+  inbox.SmsQuery? get _query =>
+      Platform.isAndroid ? inbox.SmsQuery() : null;
+
   Future<bool> hasPermission() async {
+    if (!Platform.isAndroid) return false;
     return await Permission.sms.isGranted;
   }
 
-  // Request SMS permission
   Future<bool> requestPermission() async {
+    if (!Platform.isAndroid) return false;
     final status = await Permission.sms.request();
     return status.isGranted;
   }
@@ -35,18 +43,63 @@ class SmsService {
     DateTime? endDate,
     List<String>? senderAddresses,
   }) async {
+    if (!Platform.isAndroid) {
+      return [];
+    }
+
     if (!await hasPermission()) {
       throw SmsPermissionException('SMS permission not granted');
     }
 
     try {
-      // Note: flutter_sms doesn't have direct inbox reading
-      // This is a placeholder - in production, you'd use platform channels
-      // or a different package that supports SMS reading
-      
-      // For now, return empty list to prevent crashes
-      // You can implement platform-specific code later
-      return [];
+      final q = _query;
+      if (q == null) return [];
+
+      final List<inbox.SmsMessage> rawMessages = [];
+
+      if (senderAddresses != null && senderAddresses.isNotEmpty) {
+        for (final addr in senderAddresses) {
+          final msgs = await q.querySms(
+            address: addr,
+            kinds: const [inbox.SmsQueryKind.inbox],
+            sort: true,
+          );
+          rawMessages.addAll(msgs);
+        }
+      } else {
+        rawMessages.addAll(
+          await q.querySms(
+            kinds: const [inbox.SmsQueryKind.inbox],
+            sort: true,
+          ),
+        );
+      }
+
+      final filtered = rawMessages.where((m) {
+        final date = m.date;
+        if (startDate != null && date != null && date.isBefore(startDate)) {
+          return false;
+        }
+        if (endDate != null && date != null && date.isAfter(endDate)) {
+          return false;
+        }
+        if (senderAddresses != null && senderAddresses.isNotEmpty) {
+          final addr = (m.address ?? '').toLowerCase();
+          return senderAddresses.any((s) => addr == s.toLowerCase());
+        }
+        return true;
+      });
+
+      return filtered
+          .map(
+            (m) => SmsMessage(
+              id: m.id,
+              address: m.address,
+              body: m.body,
+              date: m.date,
+            ),
+          )
+          .toList();
     } catch (e) {
       throw SmsPermissionException('Failed to read SMS: ${e.toString()}');
     }

@@ -2,9 +2,23 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../widgets/empty_state.dart';
 
-class SubscriptionsScreen extends StatelessWidget {
+class SubscriptionsScreen extends StatefulWidget {
   static const route = '/subscriptions';
   const SubscriptionsScreen({super.key});
+
+  @override
+  State<SubscriptionsScreen> createState() => _SubscriptionsScreenState();
+}
+
+class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      AppScope.of(context).markBingoEvent('subscriptions_viewed');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +34,6 @@ class SubscriptionsScreen extends StatelessWidget {
               message: 'Track your recurring payments by adding subscriptions',
               actionLabel: 'Add Subscription',
               onAction: () {
-                // Navigate to add subscription (you can implement this later)
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Add subscription feature coming soon')),
                 );

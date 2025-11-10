@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 import 'package:flutter/material.dart';
 import '../app_state.dart';
+import '../widgets/colorful_background.dart';
 import '../widgets/empty_state.dart';
 
 class StatisticsScreen extends StatelessWidget {
@@ -18,30 +19,35 @@ class StatisticsScreen extends StatelessWidget {
       t.time.year == now.year && t.time.month == now.month
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Statistics for $monthYear'),
+    return ColorfulBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text('Statistics for $monthYear'),
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+        ),
+        body: hasTransactions
+            ? ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _AverageDailyCard(app: app),
+                  const SizedBox(height: 12),
+                  _HighLowExpensesRow(app: app),
+                  const SizedBox(height: 12),
+                  _MostFrequentMerchantCard(app: app),
+                  const SizedBox(height: 12),
+                  _SpendingByDayCard(app: app),
+                ],
+              )
+            : EmptyState(
+                icon: Icons.analytics_outlined,
+                title: 'Not enough data',
+                message: 'Add more expenses to see detailed statistics and insights',
+                actionLabel: 'Add Expense',
+                onAction: () => Navigator.pop(context),
+              ),
       ),
-      body: hasTransactions
-          ? ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                _AverageDailyCard(app: app),
-                const SizedBox(height: 12),
-                _HighLowExpensesRow(app: app),
-                const SizedBox(height: 12),
-                _MostFrequentMerchantCard(app: app),
-                const SizedBox(height: 12),
-                _SpendingByDayCard(app: app),
-              ],
-            )
-          : EmptyState(
-              icon: Icons.analytics_outlined,
-              title: 'Not enough data',
-              message: 'Add more expenses to see detailed statistics and insights',
-              actionLabel: 'Add Expense',
-              onAction: () => Navigator.pop(context),
-            ),
     );
   }
 }

@@ -2,10 +2,72 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import '../app_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class HomeScreen extends StatelessWidget {
+import '../app_state.dart';
+import '../services/sms_parser.dart';
+import '../services/sms_service.dart';
+import '../services/transaction_import_service.dart';
+import '../widgets/colorful_background.dart';
+
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _importScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _handleFirstFrame());
+  }
+
+  Future<void> _handleFirstFrame() async {
+    if (!mounted) return;
+    final app = AppScope.of(context);
+    app.markBingoEvent('home_viewed');
+    if (_importScheduled) return;
+    _importScheduled = true;
+    await _maybeAutoImport(app);
+  }
+
+  Future<void> _maybeAutoImport(AppState app) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool('sms_import_enabled') ?? true;
+      if (!enabled) return;
+
+      final daysBack = prefs.getInt('sms_days_back') ?? 30;
+      const smsService = SmsService();
+      if (!await smsService.hasPermission()) return;
+
+      final importer = TransactionImportService(
+        smsService,
+        SmsParser(),
+        app,
+      );
+
+      await importer.loadImportHistory();
+      final pending = await importer.scanTransactions(daysBack: daysBack);
+      if (pending.isEmpty) return;
+
+      final result = await importer.importTransactions(pending);
+      if (!mounted) return;
+      if (result.successful > 0) {
+        app.markBingoEvent('receipt_saved');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Imported ${result.successful} expenses from SMS')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      debugPrint('Auto SMS import failed: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,197 +85,155 @@ class HomeScreen extends StatelessWidget {
     final double ratioLeft = app.moneyLeftRatio; // 0..1 (left/budget)
     final double used = (1 - ratioLeft).clamp(0.0, 1.0);
 
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+    final children = <Widget>[
+      Center(
+        child: Column(
           children: [
-            // ===== Brand =====
-            Center(
+            Text(
+              'SpendSense',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: .5,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black.withOpacity(.18),
+                        offset: const Offset(0, 2),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Spend smart. Live better.',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelLarge
+                  ?.copyWith(color: Theme.of(context).hintColor),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      _Panel(
+        color: cs.secondaryContainer
+            .withOpacity(Theme.of(context).brightness == Brightness.dark ? .22 : .45),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 160,
+              height: 160,
+              child: _DonutChart(
+                values: app.categories.map((c) => app.spentFor(c.type)).toList(),
+                colors: app.categories.map((c) => c.color).toList(),
+                centerText: money(app.totalSpentThisMonth),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: app.categories
+                    .map(
+                      (c) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _LegendRow(
+                          color: c.color,
+                          label: c.type == CategoryType.rent ? 'Necessities' : c.name,
+                          amount: money(app.spentFor(c.type)),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      _Panel(
+        title: 'MONEY LEFT TO SPEND',
+        child: Row(
+          children: [
+            _DialGauge(
+              ratio: ratioLeft,
+              size: 150,
+              color: _colorFromUsage(used),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'SpendSense',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: .5,
-                          shadows: [
-                            Shadow(
-                              color: Colors.black.withOpacity(.18),
-                              offset: const Offset(0, 2),
-                              blurRadius: 4,
-                            )
-                          ],
-                        ),
+                    '${money(left)} left',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
-                  const SizedBox(height: 6),
-                  Text('Spend smart. Live better.',
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelLarge
-                          ?.copyWith(color: Theme.of(context).hintColor)),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            // ===== Donut + legend in a tinted panel =====
-            _Panel(
-              color: cs.secondaryContainer.withOpacity(
-                Theme.of(context).brightness == Brightness.dark ? .22 : .45,
-              ),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 160,
-                    height: 160,
-                    child: _DonutChart(
-                      values: app.categories
-                          .map((c) => app.spentFor(c.type))
-                          .toList(),
-                      colors: app.categories.map((c) => c.color).toList(),
-                      centerText: money(app.totalSpentThisMonth),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: app.categories
-                          .map(
-                            (c) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: _LegendRow(
-                                color: c.color,
-                                // rename Rent → Necessities (label only)
-                                label: c.type == CategoryType.rent
-                                    ? 'Necessities'
-                                    : c.name,
-                                amount: money(app.spentFor(c.type)),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
+                  const SizedBox(height: 4),
+                  Text('of ${money(app.monthlyBudget)} this month'),
+                  const SizedBox(height: 10),
+                  _Reminder(
+                    text: left >= 0
+                        ? 'REMINDER: You have ${money(left)} left for this month.'
+                        : 'REMINDER: Over budget by ${money(left.abs())}.',
                   ),
                 ],
               ),
             ),
-
-            const SizedBox(height: 14),
-
-            // TODO: Emergency Fund / Wallets - Future feature
-            // _Panel(
-            //   title: 'EMERGENCY FUNDS',
-            //   child: Column(
-            //     crossAxisAlignment: CrossAxisAlignment.start,
-            //     children: [
-            //       ClipRRect(
-            //         borderRadius: BorderRadius.circular(12),
-            //         child: LinearProgressIndicator(
-            //           value: emgPct,
-            //           minHeight: 14,
-            //           backgroundColor: cs.surfaceContainerHighest,
-            //         ),
-            //       ),
-            //       const SizedBox(height: 10),
-            //       _Reminder(
-            //         text: emg.target <= 0
-            //             ? 'Set a goal to start tracking your emergency fund.'
-            //             : (emg.balance >= emg.target)
-            //                 ? 'Goal reached! Great job building your cushion.'
-            //                 : 'You need ${money(emg.target - emg.balance)} more to complete the goal.',
-            //       ),
-            //     ],
-            //   ),
-            // ),
-            // const SizedBox(height: 14),
-
-            // ===== Money left dial (green -> red) with REMINDER =====
-            _Panel(
-              title: 'MONEY LEFT TO SPEND',
-              child: Row(
-                children: [
-                  _DialGauge(
-                    ratio: ratioLeft,
-                    size: 150,
-                    color: _colorFromUsage(used),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${money(left)} left',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge
-                                ?.copyWith(fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 4),
-                        Text('of ${money(app.monthlyBudget)} this month'),
-                        const SizedBox(height: 10),
-                        _Reminder(
-                          text: left >= 0
-                              ? 'REMINDER: You have ${money(left)} left for this month.'
-                              : 'REMINDER: Over budget by ${money(left.abs())}.',
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            // ===== Bingo / Tasks (Daily • Weekly • Monthly) =====
-            _Panel(
-              title: 'BINGO — DAILY • WEEKLY • MONTHLY',
-              child: _BingoPanel(),
-            ),
-
-            const SizedBox(height: 14),
-
-            // ===== Quick actions (as in mock) =====
-            _Panel(
-              title: 'Quick actions',
-              child: _QuickActions(
-                actions: const [
-                  _QA(icon: Icons.add, label: 'Expense'),
-                  _QA(icon: Icons.account_balance, label: 'Link bank'),
-                  _QA(icon: Icons.attach_money, label: 'Salary credit'),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // ===== Upcoming bills (top 3) =====
-            if (app.upcomingBills.isNotEmpty) ...[
-              Text('Upcoming bills',
-                  style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              _Panel(
-                child: Column(
-                  children: [
-                    for (final it in app.upcomingBills) ...[
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.event_note_outlined),
-                        title: Text(it.sub.name),
-                        subtitle:
-                            Text('Due ${_fmtDay(it.due)} • ${money(it.sub.amount)}'),
-                      ),
-                      if (it != app.upcomingBills.last)
-                        const Divider(height: 8),
-                    ],
-                  ],
-                ),
-              ),
-            ],
           ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      _Panel(
+        title: 'BINGO — DAILY • WEEKLY • MONTHLY',
+        child: _BingoPanel(),
+      ),
+      const SizedBox(height: 14),
+      _Panel(
+        title: 'Quick actions',
+        child: _QuickActions(
+          actions: const [
+            _QA(icon: Icons.add, label: 'Expense'),
+            _QA(icon: Icons.account_balance, label: 'Link bank'),
+            _QA(icon: Icons.attach_money, label: 'Salary credit'),
+          ],
+        ),
+      ),
+      const SizedBox(height: 16),
+      if (app.upcomingBills.isNotEmpty) ...[
+        Text('Upcoming bills', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        _Panel(
+          child: Column(
+            children: [
+              for (final it in app.upcomingBills) ...[
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.event_note_outlined),
+                  title: Text(it.sub.name),
+                  subtitle: Text('Due ${_fmtDay(it.due)} • ${money(it.sub.amount)}'),
+                ),
+                if (it != app.upcomingBills.last)
+                  const Divider(height: 8),
+              ],
+            ],
+          ),
+        ),
+      ],
+    ];
+
+    return ColorfulBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: children,
+          ),
         ),
       ),
     );
@@ -450,85 +470,92 @@ class _BingoPanel extends StatefulWidget {
 }
 
 class _BingoPanelState extends State<_BingoPanel> {
-  String _tab = 'daily'; // daily | weekly | monthly
-  // simple 3x3 boolean boards
-  final Map<String, List<bool>> _boards = {
-    'daily': List<bool>.filled(9, false),
-    'weekly': List<bool>.filled(9, false),
-    'monthly': List<bool>.filled(9, false),
-  };
-
-  // Task labels per tab (9 each)
-  final Map<String, List<String>> _labels = {
-    'daily': [
-      'Add expense','No-spend day','Check insights',
-      'Review budget','Skip delivery','Use cash',
-      'Compare prices','Pack lunch','Walk instead'
-    ],
-    'weekly': [
-      'Stay under budget','Review bills','Update goals',
-      'Check subscriptions','Plan meals','Track spending',
-      'Set reminders','Review categories','Save receipt'
-    ],
-    'monthly': [
-      'Set budgets','Review trends','Pay bills',
-      'Check savings','Audit expenses','Update targets',
-      'Review subscriptions','Plan next month','Celebrate wins'
-    ],
-  };
+  String _tab = 'daily';
 
   @override
   Widget build(BuildContext context) {
+    final app = AppScope.of(context);
     final cs = Theme.of(context).colorScheme;
+    final tasks = _taskMap[_tab]!;
+    final completed = tasks.where((t) => t.isComplete(app)).length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment(value: 'daily', label: Text('Daily')),
-            ButtonSegment(value: 'weekly', label: Text('Weekly')),
-            ButtonSegment(value: 'monthly', label: Text('Monthly')),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'daily', label: Text('Daily')),
+                ButtonSegment(value: 'weekly', label: Text('Weekly')),
+                ButtonSegment(value: 'monthly', label: Text('Monthly')),
+              ],
+              selected: {_tab},
+              onSelectionChanged: (s) => setState(() => _tab = s.first),
+            ),
+            Text(
+              '$completed / ${tasks.length}',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: cs.primary,
+                  ),
+            ),
           ],
-          selected: {_tab},
-          onSelectionChanged: (s) => setState(() => _tab = s.first),
         ),
         const SizedBox(height: 12),
         GridView.builder(
-          itemCount: 9,
+          itemCount: tasks.length,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: .95,
+            crossAxisCount: 3,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: .95,
           ),
-          itemBuilder: (_, i) {
-            final checked = _boards[_tab]![i];
-            return InkWell(
-              onTap: () => _toggle(i),
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: checked ? cs.primaryContainer : cs.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: checked ? cs.primary : cs.outlineVariant),
+          itemBuilder: (_, index) {
+            final task = tasks[index];
+            final done = task.isComplete(app);
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                gradient: done
+                    ? LinearGradient(
+                        colors: [
+                          cs.primary.withOpacity(.85),
+                          cs.secondary.withOpacity(.85),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : null,
+                color: done ? null : cs.surface.withOpacity(.85),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: done ? cs.primary : cs.outlineVariant,
+                  width: 1.2,
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(checked ? Icons.check_circle : Icons.circle_outlined,
-                        color: checked ? cs.primary : cs.onSurfaceVariant),
-                    const SizedBox(height: 6),
-                    Text(
-                      _labels[_tab]![i],
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: checked ? cs.onPrimaryContainer : cs.onSurface,
-                      ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    done ? Icons.check_circle : task.icon,
+                    color: done ? cs.onPrimary : cs.primary,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    task.label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: done ? cs.onPrimary : cs.onSurface,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             );
           },
@@ -536,68 +563,211 @@ class _BingoPanelState extends State<_BingoPanel> {
       ],
     );
   }
-
-  void _toggle(int i) async {
-    final app = AppScope.of(context);
-    final board = _boards[_tab]!;
-    final taskName = _labels[_tab]![i];
-    final isChecked = board[i];
-
-    // If unchecking, just uncheck without confirmation
-    if (isChecked) {
-      setState(() => board[i] = false);
-      return;
-    }
-
-    // If checking, ask for confirmation
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Complete Task?'),
-        content: Text('Did you actually complete:\n\n"$taskName"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('No'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Yes, I did it!'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    setState(() => board[i] = true);
-
-    if (_isBingo(board)) {
-      // celebrate & count
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bingo! 🎉 You completed a line!')),
-      );
-      app.incrementPuzzleCompleted();
-      // Reset board after success so they can play again
-      setState(() => _boards[_tab] = List<bool>.filled(9, false));
-    }
-  }
-
-  bool _isBingo(List<bool> b) {
-    const lines = <List<int>>[
-      // rows
-      [0,1,2],[3,4,5],[6,7,8],
-      // cols
-      [0,3,6],[1,4,7],[2,5,8],
-      // diags
-      [0,4,8],[2,4,6],
-    ];
-    for (final line in lines) {
-      if (b[line[0]] && b[line[1]] && b[line[2]]) return true;
-    }
-    return false;
-  }
 }
+
+class _AutoTask {
+  final String id;
+  final String label;
+  final IconData icon;
+  final bool Function(AppState app) isComplete;
+
+  const _AutoTask({
+    required this.id,
+    required this.label,
+    required this.icon,
+    required this.isComplete,
+  });
+}
+
+final Map<String, List<_AutoTask>> _taskMap = {
+  'daily': [
+    _AutoTask(
+      id: 'daily_add_expense',
+      label: 'Add expense',
+      icon: Icons.add_task,
+      isComplete: (app) => app.didAddExpenseToday,
+    ),
+    _AutoTask(
+      id: 'daily_no_spend',
+      label: 'No-spend day',
+      icon: Icons.hourglass_bottom,
+      isComplete: (app) => app.noSpendToday,
+    ),
+    _AutoTask(
+      id: 'daily_check_insights',
+      label: 'Check insights',
+      icon: Icons.insights,
+      isComplete: (app) => app.didEventToday('insights_viewed'),
+    ),
+    _AutoTask(
+      id: 'daily_review_budget',
+      label: 'Review budget',
+      icon: Icons.pie_chart,
+      isComplete: (app) =>
+          app.didEventToday('spending_viewed') ||
+          app.didEventToday('budget_updated'),
+    ),
+    _AutoTask(
+      id: 'daily_skip_delivery',
+      label: 'Skip delivery',
+      icon: Icons.delivery_dining,
+      isComplete: (app) => app.avoidedDeliveryToday,
+    ),
+    _AutoTask(
+      id: 'daily_use_cash',
+      label: 'Use cash',
+      icon: Icons.payments,
+      isComplete: (app) => app.usedCashToday,
+    ),
+    _AutoTask(
+      id: 'daily_compare_prices',
+      label: 'Compare prices',
+      icon: Icons.receipt_long,
+      isComplete: (app) => app.didEventToday('transactions_viewed'),
+    ),
+    _AutoTask(
+      id: 'daily_pack_lunch',
+      label: 'Pack lunch',
+      icon: Icons.lunch_dining,
+      isComplete: (app) =>
+          app.spentInLastDays(1, category: CategoryType.food) <= 200,
+    ),
+    _AutoTask(
+      id: 'daily_walk_instead',
+      label: 'Walk instead',
+      icon: Icons.directions_walk,
+      isComplete: (app) =>
+          app.spentInLastDays(1, category: CategoryType.travel) == 0,
+    ),
+  ],
+  'weekly': [
+    _AutoTask(
+      id: 'weekly_under_budget',
+      label: 'Stay under budget',
+      icon: Icons.speed,
+      isComplete: (app) => app.isUnderBudgetForPeriod(7),
+    ),
+    _AutoTask(
+      id: 'weekly_review_bills',
+      label: 'Review bills',
+      icon: Icons.receipt,
+      isComplete: (app) =>
+          app.didEventWithin('subscriptions_viewed', const Duration(days: 7)),
+    ),
+    _AutoTask(
+      id: 'weekly_update_goals',
+      label: 'Update goals',
+      icon: Icons.flag,
+      isComplete: (app) =>
+          app.didEventWithin('goals_updated', const Duration(days: 7)),
+    ),
+    _AutoTask(
+      id: 'weekly_check_subscriptions',
+      label: 'Check subscriptions',
+      icon: Icons.subscriptions,
+      isComplete: (app) =>
+          app.didEventWithin('subscriptions_viewed', const Duration(days: 7)),
+    ),
+    _AutoTask(
+      id: 'weekly_plan_meals',
+      label: 'Plan meals',
+      icon: Icons.restaurant_menu,
+      isComplete: (app) => !app.hadDeliveryInLastDays(7),
+    ),
+    _AutoTask(
+      id: 'weekly_track_spending',
+      label: 'Track spending',
+      icon: Icons.assessment,
+      isComplete: (app) =>
+          app.didEventWithin('transactions_viewed', const Duration(days: 7)),
+    ),
+    _AutoTask(
+      id: 'weekly_set_reminders',
+      label: 'Set reminders',
+      icon: Icons.alarm,
+      isComplete: (app) =>
+          app.didEventWithin('reminders_set', const Duration(days: 7)),
+    ),
+    _AutoTask(
+      id: 'weekly_review_categories',
+      label: 'Review categories',
+      icon: Icons.category,
+      isComplete: (app) =>
+          app.didEventWithin('categories_reviewed', const Duration(days: 7)),
+    ),
+    _AutoTask(
+      id: 'weekly_save_receipt',
+      label: 'Save receipt',
+      icon: Icons.save,
+      isComplete: (app) =>
+          app.didEventWithin('receipt_saved', const Duration(days: 7)),
+    ),
+  ],
+  'monthly': [
+    _AutoTask(
+      id: 'monthly_set_budgets',
+      label: 'Set budgets',
+      icon: Icons.calculate,
+      isComplete: (app) =>
+          app.didEventWithin('budget_updated', const Duration(days: 30)),
+    ),
+    _AutoTask(
+      id: 'monthly_review_trends',
+      label: 'Review trends',
+      icon: Icons.leaderboard,
+      isComplete: (app) =>
+          app.didEventWithin('insights_viewed', const Duration(days: 30)),
+    ),
+    _AutoTask(
+      id: 'monthly_pay_bills',
+      label: 'Pay bills',
+      icon: Icons.payments_outlined,
+      isComplete: (app) =>
+          app.didEventWithin('subscriptions_viewed', const Duration(days: 30)),
+    ),
+    _AutoTask(
+      id: 'monthly_check_savings',
+      label: 'Check savings',
+      icon: Icons.savings,
+      isComplete: (app) =>
+          app.didEventWithin('goals_updated', const Duration(days: 30)),
+    ),
+    _AutoTask(
+      id: 'monthly_audit_expenses',
+      label: 'Audit expenses',
+      icon: Icons.checklist,
+      isComplete: (app) =>
+          app.didEventWithin('transactions_viewed', const Duration(days: 30)),
+    ),
+    _AutoTask(
+      id: 'monthly_update_targets',
+      label: 'Update targets',
+      icon: Icons.center_focus_strong,
+      isComplete: (app) =>
+          app.didEventWithin('goals_updated', const Duration(days: 30)),
+    ),
+    _AutoTask(
+      id: 'monthly_review_subscriptions',
+      label: 'Review subscriptions',
+      icon: Icons.manage_accounts,
+      isComplete: (app) =>
+          app.didEventWithin('subscriptions_viewed', const Duration(days: 30)),
+    ),
+    _AutoTask(
+      id: 'monthly_plan_next',
+      label: 'Plan next month',
+      icon: Icons.calendar_today,
+      isComplete: (app) =>
+          app.didEventWithin('budget_updated', const Duration(days: 30)),
+    ),
+    _AutoTask(
+      id: 'monthly_celebrate',
+      label: 'Celebrate wins',
+      icon: Icons.emoji_events,
+      isComplete: (app) => app.rewardPoints >= 10 || app.puzzleComplete,
+    ),
+  ],
+};
 
 /// ======= Quick actions =======
 class _QA {
