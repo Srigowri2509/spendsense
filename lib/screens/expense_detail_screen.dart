@@ -17,14 +17,35 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
   late TextEditingController _merchantCtrl;
   late CategoryType _selectedCategory;
   late String _selectedSource;
+  TransactionItem? _currentTransaction;
+
+  TransactionItem get _transaction => _currentTransaction ?? widget.transaction;
 
   @override
   void initState() {
     super.initState();
-    _amountCtrl = TextEditingController(text: widget.transaction.amount.toString());
-    _merchantCtrl = TextEditingController(text: widget.transaction.merchant);
-    _selectedCategory = widget.transaction.category;
-    _selectedSource = widget.transaction.source;
+    _amountCtrl = TextEditingController();
+    _merchantCtrl = TextEditingController();
+    _updateFromTransaction(widget.transaction);
+  }
+
+  void _updateFromTransaction(TransactionItem transaction) {
+    _amountCtrl.text = transaction.amount.toString();
+    _merchantCtrl.text = transaction.merchant;
+    _selectedCategory = transaction.category;
+    // Normalize source to match dropdown values
+    final source = transaction.source.toLowerCase();
+    if (source == 'upi') {
+      _selectedSource = 'UPI';
+    } else if (source == 'cash') {
+      _selectedSource = 'Cash';
+    } else if (source == 'card') {
+      _selectedSource = 'Card';
+    } else if (source == 'bank') {
+      _selectedSource = 'Bank';
+    } else {
+      _selectedSource = source.isEmpty ? 'UPI' : source.substring(0, 1).toUpperCase() + source.substring(1).toLowerCase();
+    }
   }
 
   @override
@@ -54,17 +75,30 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
     }
 
     try {
+      // Convert source to lowercase for consistency
+      final source = _selectedSource.toLowerCase();
       await app.updateTransaction(
-        id: widget.transaction.id,
+        id: _transaction.id,
         amount: amount,
         category: _selectedCategory,
         merchant: merchant,
-        source: _selectedSource,
+        source: source,
       );
       
       if (!mounted) return;
       
-      setState(() => _isEditing = false);
+      // Get updated transaction from app state
+      final updated = app.transactions.firstWhere(
+        (t) => t.id == _transaction.id,
+        orElse: () => _transaction,
+      );
+      
+      setState(() {
+        _currentTransaction = updated;
+        _isEditing = false;
+        _updateFromTransaction(updated);
+      });
+      
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Expense updated successfully')),
       );
@@ -104,7 +138,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
     final app = AppScope.of(context);
     
     try {
-      await app.removeTransaction(widget.transaction.id);
+      await app.removeTransaction(_transaction.id);
       
       if (!mounted) return;
       
@@ -176,7 +210,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                     )
                   else
                     Text(
-                      formatCurrency(widget.transaction.amount, symbol: app.currencySymbol),
+                      formatCurrency(_transaction.amount, symbol: app.currencySymbol),
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.w800,
                             color: Theme.of(context).colorScheme.primary,
@@ -223,14 +257,14 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                       children: [
                         Icon(
                           app.categories
-                              .firstWhere((c) => c.type == widget.transaction.category)
+                              .firstWhere((c) => c.type == _transaction.category)
                               .icon,
                           size: 24,
                         ),
                         const SizedBox(width: 12),
                         Text(
                           app.categories
-                              .firstWhere((c) => c.type == widget.transaction.category)
+                              .firstWhere((c) => c.type == _transaction.category)
                               .name,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
@@ -268,7 +302,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                     )
                   else
                     Text(
-                      widget.transaction.merchant,
+                      _transaction.merchant,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                 ],
@@ -300,7 +334,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                                 ),
                           ),
                           Text(
-                            '${widget.transaction.time.day}/${widget.transaction.time.month}/${widget.transaction.time.year}',
+                            '${_transaction.time.day}/${_transaction.time.month}/${_transaction.time.year}',
                             style: Theme.of(context).textTheme.bodyLarge,
                           ),
                         ],
@@ -331,7 +365,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                             )
                           else
                             Text(
-                              widget.transaction.source,
+                              _transaction.source,
                               style: Theme.of(context).textTheme.bodyLarge,
                             ),
                         ],
@@ -352,10 +386,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                     onPressed: () {
                       setState(() {
                         _isEditing = false;
-                        _amountCtrl.text = widget.transaction.amount.toString();
-                        _merchantCtrl.text = widget.transaction.merchant;
-                        _selectedCategory = widget.transaction.category;
-                        _selectedSource = widget.transaction.source;
+                        _updateFromTransaction(_transaction);
                       });
                     },
                     child: const Text('Cancel'),

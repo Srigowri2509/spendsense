@@ -17,13 +17,42 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _importScheduled = false;
+  DateTime? _lastImportCheck;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _handleFirstFrame());
+    // Set up periodic auto-import (every 5 minutes when app is active)
+    _startPeriodicImport();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Run import when app comes to foreground
+      final app = AppScope.of(context);
+      _maybeAutoImport(app, showNotification: false);
+    }
+  }
+
+  void _startPeriodicImport() {
+    Future.delayed(const Duration(minutes: 5), () {
+      if (mounted) {
+        final app = AppScope.of(context);
+        _maybeAutoImport(app, showNotification: false);
+        _startPeriodicImport(); // Schedule next check
+      }
+    });
   }
 
   Future<void> _handleFirstFrame() async {
@@ -35,13 +64,20 @@ class _HomeScreenState extends State<HomeScreen> {
     await _maybeAutoImport(app);
   }
 
-  Future<void> _maybeAutoImport(AppState app) async {
+  Future<void> _maybeAutoImport(AppState app, {bool showNotification = true}) async {
     try {
+      // Throttle: Don't check more than once per minute
+      final now = DateTime.now();
+      if (_lastImportCheck != null && 
+          now.difference(_lastImportCheck!).inMinutes < 1) {
+        return;
+      }
+      _lastImportCheck = now;
+
       final prefs = await SharedPreferences.getInstance();
       final enabled = prefs.getBool('sms_import_enabled') ?? true;
       if (!enabled) return;
 
-      final daysBack = prefs.getInt('sms_days_back') ?? 30;
       const smsService = SmsService();
       if (!await smsService.hasPermission()) return;
 
@@ -52,6 +88,9 @@ class _HomeScreenState extends State<HomeScreen> {
       );
 
       await importer.loadImportHistory();
+      
+      // Only scan last 1 day for periodic checks (faster)
+      final daysBack = showNotification ? (prefs.getInt('sms_days_back') ?? 30) : 1;
       final pending = await importer.scanTransactions(daysBack: daysBack);
       if (pending.isEmpty) return;
 
@@ -59,9 +98,23 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       if (result.successful > 0) {
         app.markBingoEvent('receipt_saved');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Imported ${result.successful} expenses from SMS')),
-        );
+        if (showNotification && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Imported ${result.successful} expense${result.successful > 1 ? 's' : ''} from SMS'),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -191,17 +244,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _Panel(
         title: 'BINGO — DAILY • WEEKLY • MONTHLY',
         child: _BingoPanel(),
-      ),
-      const SizedBox(height: 14),
-      _Panel(
-        title: 'Quick actions',
-        child: _QuickActions(
-          actions: const [
-            _QA(icon: Icons.add, label: 'Expense'),
-            _QA(icon: Icons.account_balance, label: 'Link bank'),
-            _QA(icon: Icons.attach_money, label: 'Salary credit'),
-          ],
-        ),
       ),
       const SizedBox(height: 16),
       if (app.upcomingBills.isNotEmpty) ...[
@@ -471,6 +513,62 @@ class _BingoPanel extends StatefulWidget {
 
 class _BingoPanelState extends State<_BingoPanel> {
   String _tab = 'daily';
+  final Map<String, int> _lastCompletedCount = {'daily': 0, 'weekly': 0, 'monthly': 0};
+
+  // Check if 3 tasks connect horizontally, vertically, or diagonally
+  bool _isBingo(List<bool> filled) {
+    const lines = [
+      [0, 1, 2], // row 1 (horizontal)
+      [3, 4, 5], // row 2 (horizontal)
+      [6, 7, 8], // row 3 (horizontal)
+      [0, 3, 6], // col 1 (vertical)
+      [1, 4, 7], // col 2 (vertical)
+      [2, 5, 8], // col 3 (vertical)
+      [0, 4, 8], // diag 1 (top-left to bottom-right)
+      [2, 4, 6], // diag 2 (top-right to bottom-left)
+    ];
+    for (final line in lines) {
+      // Check if all 3 positions in this line are filled
+      if (filled[line[0]] && filled[line[1]] && filled[line[2]]) return true;
+    }
+    return false;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _checkBingo();
+    });
+  }
+
+  @override
+  void didUpdateWidget(_BingoPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _checkBingo();
+    });
+  }
+
+  void _checkBingo() {
+    if (!mounted) return;
+    final app = AppScope.of(context);
+    final tasks = _taskMap[_tab]!;
+    final filled = List<bool>.generate(9, (i) => i < tasks.length ? tasks[i].isComplete(app) : false);
+    final completed = filled.where((f) => f).length;
+    final lastCount = _lastCompletedCount[_tab] ?? 0;
+
+    if (completed > lastCount && _isBingo(filled)) {
+      app.incrementPuzzleCompleted();
+      app.rewardPoints += 20;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bingo! 🎉 +20 points')),
+        );
+      }
+    }
+    _lastCompletedCount[_tab] = completed;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -478,6 +576,14 @@ class _BingoPanelState extends State<_BingoPanel> {
     final cs = Theme.of(context).colorScheme;
     final tasks = _taskMap[_tab]!;
     final completed = tasks.where((t) => t.isComplete(app)).length;
+
+    // Check for bingo when completed count changes
+    final lastCount = _lastCompletedCount[_tab] ?? 0;
+    if (completed != lastCount) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkBingo();
+      });
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -492,7 +598,12 @@ class _BingoPanelState extends State<_BingoPanel> {
                 ButtonSegment(value: 'monthly', label: Text('Monthly')),
               ],
               selected: {_tab},
-              onSelectionChanged: (s) => setState(() => _tab = s.first),
+              onSelectionChanged: (s) {
+                setState(() => _tab = s.first);
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _checkBingo();
+                });
+              },
             ),
             Text(
               '$completed / ${tasks.length}',
@@ -768,36 +879,6 @@ final Map<String, List<_AutoTask>> _taskMap = {
     ),
   ],
 };
-
-/// ======= Quick actions =======
-class _QA {
-  final IconData icon;
-  final String label;
-  const _QA({required this.icon, required this.label});
-}
-
-class _QuickActions extends StatelessWidget {
-  final List<_QA> actions;
-  const _QuickActions({required this.actions});
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: actions
-          .map((a) => Column(
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    child: Icon(a.icon),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(a.label),
-                ],
-              ))
-          .toList(),
-    );
-  }
-}
 
 // alias so main.dart can use either name
 typedef HomePage = HomeScreen;

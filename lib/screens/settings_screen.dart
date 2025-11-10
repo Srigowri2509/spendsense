@@ -1,8 +1,12 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../app_state.dart'; // formatCurrency + AppScope
 import '../widgets/colorful_background.dart';
 import 'sms_settings_screen.dart';
+import 'subscriptions_screen.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -92,18 +96,24 @@ class SettingsPage extends StatelessWidget {
                 onTap: () => _push(context, const _BudgetsSettingsPage()),
               ),
               _ListDivider(cs),
-              // TODO: SMS Import - Requires platform-specific implementation
-              // _NavRow(
-              //   icon: Icons.sms_outlined,
-              //   title: 'SMS Import',
-              //   subtitle: 'Auto-import from transaction SMS',
-              //   onTap: () => _push(context, const SmsSettingsScreen()),
-              // ),
-              // _ListDivider(cs),
+              _NavRow(
+                icon: Icons.sms_outlined,
+                title: 'SMS Import',
+                subtitle: 'Auto-import from transaction SMS',
+                onTap: () => _push(context, const SmsSettingsScreen()),
+              ),
+              _ListDivider(cs),
               _NavRow(
                 icon: Icons.score_outlined,
                 title: 'Scoreboard',
                 onTap: () => _push(context, const _ScoreboardPage()),
+              ),
+              _ListDivider(cs),
+              _NavRow(
+                icon: Icons.subscriptions_outlined,
+                title: 'Subscriptions',
+                subtitle: 'Manage recurring payments',
+                onTap: () => _push(context, const _SubscriptionsPage()),
               ),
               _ListDivider(cs),
               // TODO: Linked Banks - Future feature
@@ -743,6 +753,14 @@ class _LinkedBanksPage extends StatelessWidget {
 // =====================================================
 // Scoreboard (podium + rest)
 // =====================================================
+class _SubscriptionsPage extends StatelessWidget {
+  const _SubscriptionsPage();
+  @override
+  Widget build(BuildContext context) {
+    return const SubscriptionsScreen();
+  }
+}
+
 class _ScoreboardPage extends StatelessWidget {
   const _ScoreboardPage();
   @override
@@ -762,7 +780,16 @@ class _ScoreboardPage extends StatelessWidget {
     final rest = players.length > 3 ? players.sublist(3) : <_Player>[];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Scoreboard')),
+      appBar: AppBar(
+        title: const Text('Scoreboard'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add),
+            tooltip: 'Invite friends',
+            onPressed: () => _showInviteDialog(context, app),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -771,7 +798,17 @@ class _ScoreboardPage extends StatelessWidget {
           _Stat('Reward points', app.rewardPoints.toString(), Icons.stars_outlined),
 
           const SizedBox(height: 16),
-          Text('Top finishers', style: Theme.of(context).textTheme.titleMedium),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Top finishers', style: Theme.of(context).textTheme.titleMedium),
+              TextButton.icon(
+                onPressed: () => _showInviteDialog(context, app),
+                icon: const Icon(Icons.share),
+                label: const Text('Invite'),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
 
           _PodiumRow(podium),
@@ -888,4 +925,230 @@ typedef SettingsScreen = SettingsPage;
 // helper
 void _push(BuildContext context, Widget page) {
   Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+}
+
+// Invite dialog for scoreboard
+Future<void> _showInviteDialog(BuildContext context, AppState app) async {
+  final inviteText = '🎯 Join me on SpendSense Bingo Leaderboard! 🎯\n\n'
+      'I\'ve completed ${app.puzzlesCompleted} bingo challenges and earned ${app.rewardPoints} reward points!\n\n'
+      'Download SpendSense app and compete with me on the leaderboard. '
+      'Track expenses, complete bingo challenges, and see who can reach the top! 🏆\n\n'
+      'Can you beat my score? Let\'s compete! 💪';
+  
+  return showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Invite to Bingo Leaderboard'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Invite your friends to download SpendSense and join the bingo leaderboard!'),
+          const SizedBox(height: 16),
+          TextField(
+            readOnly: true,
+            controller: TextEditingController(text: inviteText),
+            maxLines: 8,
+            decoration: const InputDecoration(
+              labelText: 'Invite message',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: () => _inviteFromContacts(context, inviteText),
+          icon: const Icon(Icons.contacts),
+          label: const Text('From Contacts'),
+        ),
+        FilledButton.icon(
+          onPressed: () async {
+            Navigator.pop(context);
+            final uri = Uri(
+              scheme: 'sms',
+              body: inviteText,
+            );
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri);
+            } else {
+              final shareUri = Uri.parse('sms:?body=${Uri.encodeComponent(inviteText)}');
+              if (await canLaunchUrl(shareUri)) {
+                await launchUrl(shareUri);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Could not open messaging app')),
+                );
+              }
+            }
+          },
+          icon: const Icon(Icons.message),
+          label: const Text('Send SMS'),
+        ),
+        FilledButton.icon(
+          onPressed: () async {
+            Navigator.pop(context);
+            final uri = Uri(
+              scheme: 'mailto',
+              subject: 'Join me on SpendSense Bingo Leaderboard!',
+              body: inviteText,
+            );
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri);
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Could not open email app')),
+              );
+            }
+          },
+          icon: const Icon(Icons.email),
+          label: const Text('Email'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _inviteFromContacts(BuildContext context, String inviteText) async {
+  Navigator.pop(context); // Close the first dialog
+  
+  // Request contacts permission using flutter_contacts
+  final permissionGranted = await FlutterContacts.requestPermission();
+  if (!permissionGranted) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Contacts permission is required to invite friends'),
+          action: SnackBarAction(
+            label: 'Open Settings',
+            onPressed: openAppSettings,
+          ),
+        ),
+      );
+    }
+    return;
+  }
+
+  // Get contacts
+  final contacts = await FlutterContacts.getContacts(withProperties: true);
+  if (contacts.isEmpty) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No contacts found')),
+      );
+    }
+    return;
+  }
+
+  // Show contact selection dialog
+  final selectedContacts = <Contact>[];
+  
+  if (!context.mounted) return;
+  await showDialog(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('Select Contacts'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: contacts.length,
+            itemBuilder: (context, index) {
+              final contact = contacts[index];
+              final isSelected = selectedContacts.contains(contact);
+              final displayName = contact.displayName.isNotEmpty
+                  ? contact.displayName
+                  : 'Unknown';
+              final phone = contact.phones.isNotEmpty
+                  ? contact.phones.first.number
+                  : null;
+              
+              return CheckboxListTile(
+                title: Text(displayName),
+                subtitle: phone != null ? Text(phone) : null,
+                value: isSelected,
+                onChanged: (value) {
+                  setState(() {
+                    if (value == true) {
+                      selectedContacts.add(contact);
+                    } else {
+                      selectedContacts.remove(contact);
+                    }
+                  });
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: selectedContacts.isEmpty
+                ? null
+                : () async {
+                    Navigator.pop(context);
+                    await _sendInvitesToContacts(context, selectedContacts, inviteText);
+                  },
+            child: Text('Invite ${selectedContacts.length}'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Future<void> _sendInvitesToContacts(
+  BuildContext context,
+  List<Contact> contacts,
+  String inviteText,
+) async {
+  int successCount = 0;
+  int failCount = 0;
+
+  for (final contact in contacts) {
+    if (contact.phones.isEmpty) {
+      failCount++;
+      continue;
+    }
+
+    final phone = contact.phones.first.number.replaceAll(RegExp(r'[^\d+]'), '');
+    if (phone.isEmpty) {
+      failCount++;
+      continue;
+    }
+
+    try {
+      final uri = Uri.parse('sms:$phone?body=${Uri.encodeComponent(inviteText)}');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+        successCount++;
+        // Small delay to avoid overwhelming the system
+        await Future.delayed(const Duration(milliseconds: 300));
+      } else {
+        failCount++;
+      }
+    } catch (e) {
+      failCount++;
+    }
+  }
+
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          successCount > 0
+              ? 'Invited $successCount contact${successCount > 1 ? 's' : ''} to join the leaderboard!'
+              : 'Failed to send invites',
+        ),
+      ),
+    );
+  }
 }

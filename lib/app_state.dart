@@ -71,8 +71,23 @@ class Subscription {
   final String name;
   final double amount;
   final int billingDay; // 1..31
+  final DateTime nextBillingDate; // Calculated next billing date
   bool isFixed;
-  Subscription({required this.id, required this.name, required this.amount, required this.billingDay, this.isFixed = true});
+  Subscription({
+    required this.id,
+    required this.name,
+    required this.amount,
+    required this.billingDay,
+    required DateTime nextBillingDate,
+    this.isFixed = true,
+  }) : nextBillingDate = nextBillingDate;
+  
+  // Get days remaining until next billing
+  int get daysRemaining {
+    final now = DateTime.now();
+    final diff = nextBillingDate.difference(now);
+    return diff.inDays;
+  }
 }
 
 // Wallet with target (goal)
@@ -519,8 +534,22 @@ class AppState extends ChangeNotifier {
   final List<TransactionItem> transactions = [];
 
   final List<Subscription> subscriptions = [
-    Subscription(id: 'netflix', name: 'Netflix', amount: 500, billingDay: 2,  isFixed: true),
-    Subscription(id: 'music',   name: 'Music Service', amount: 199, billingDay: 12, isFixed: true),
+    Subscription(
+      id: 'netflix',
+      name: 'Netflix',
+      amount: 500,
+      billingDay: 2,
+      nextBillingDate: DateTime.now().add(const Duration(days: 5)),
+      isFixed: true,
+    ),
+    Subscription(
+      id: 'music',
+      name: 'Music Service',
+      amount: 199,
+      billingDay: 12,
+      nextBillingDate: DateTime.now().add(const Duration(days: 15)),
+      isFixed: true,
+    ),
   ];
 
   final List<Wallet> wallets = [
@@ -801,8 +830,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addSubscription({required String name, required double amount, required int billingDay, bool isFixed = true}) {
-    subscriptions.add(Subscription(id: UniqueKey().toString(), name: name, amount: amount, billingDay: billingDay, isFixed: isFixed));
+  void addSubscription({
+    required String name,
+    required double amount,
+    required int billingDay,
+    required int daysUntilNextBilling,
+    bool isFixed = true,
+  }) {
+    // Calculate next billing date from today + days until next billing
+    final nextBillingDate = DateTime.now().add(Duration(days: daysUntilNextBilling));
+    
+    subscriptions.add(Subscription(
+      id: UniqueKey().toString(),
+      name: name,
+      amount: amount,
+      billingDay: billingDay,
+      nextBillingDate: nextBillingDate,
+      isFixed: isFixed,
+    ));
     _markBingoEvent('subscriptions_viewed', notify: false);
     _completeTask(UnlockTaskType.addSubscription);
     notifyListeners();

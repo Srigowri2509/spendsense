@@ -16,8 +16,8 @@ class AppTheme {
             primary: teal,
             secondary: mauve,
             tertiary: aqua,
-            surface: const Color(0xFFF6F4FA),
-            background: const Color(0xFFF6F4FA),
+            surface: const Color(0xFFF5F5DC), // Cream color
+            background: const Color(0xFFFEFEF8), // Off-white/cream
           );
 
   static ColorScheme _darkScheme() =>
@@ -27,7 +27,12 @@ class AppTheme {
             secondary: lilac,
             tertiary: teal,
             surface: const Color(0xFF1E2225),
-            background: const Color(0xFFf0e7ce),
+            background: const Color(0xFF1E2225),
+            onSurface: const Color(0xFFE0E0E0), // Light text for visibility
+            onBackground: const Color(0xFFE0E0E0), // Light text for visibility
+            onPrimary: const Color(0xFF000000), // Dark text on primary
+            onSecondary: const Color(0xFF000000), // Dark text on secondary
+            onTertiary: const Color(0xFF000000), // Dark text on tertiary
           );
 
   static ThemeData light() => _base(_lightScheme());
@@ -41,19 +46,24 @@ class AppTheme {
 
       appBarTheme: AppBarTheme(
         backgroundColor: cs.background,
-        foregroundColor: cs.onBackground,
+        foregroundColor: cs.brightness == Brightness.dark 
+            ? const Color(0xFFE0E0E0) 
+            : cs.onBackground,
         elevation: 0,
         centerTitle: false,
       ),
 
-      cardTheme: const CardThemeData(
-  // color: inherit from theme.cardColor (keeps scheme-consistent)
-  elevation: 0,
-  margin: EdgeInsets.symmetric(vertical: 6),
-  shape: RoundedRectangleBorder(
-    borderRadius: BorderRadius.all(Radius.circular(16)),
-  ),
-),
+      cardTheme: CardThemeData(
+        // color: inherit from theme.cardColor (keeps scheme-consistent)
+        elevation: 0,
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(16)),
+        ),
+        color: cs.brightness == Brightness.dark 
+            ? cs.surface.withOpacity(0.9)
+            : null,
+      ),
 
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
@@ -114,6 +124,14 @@ class AppTheme {
       ),
 
       progressIndicatorTheme: ProgressIndicatorThemeData(color: cs.primary),
+
+      // Text theme improvements for dark mode visibility
+      textTheme: cs.brightness == Brightness.dark
+          ? ThemeData.dark().textTheme.apply(
+              bodyColor: const Color(0xFFE0E0E0),
+              displayColor: const Color(0xFFE0E0E0),
+            )
+          : ThemeData.light().textTheme,
     );
   }
 }

@@ -2,6 +2,8 @@
     <!-- SMS permissions for transaction import -->
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <!-- Contacts permission for inviting friends -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     
     <application
          android:name="${applicationName}"
