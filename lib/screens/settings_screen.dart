@@ -969,21 +969,13 @@ Future<void> _showInviteDialog(BuildContext context, AppState app) async {
         FilledButton.icon(
           onPressed: () async {
             Navigator.pop(context);
-            final uri = Uri(
-              scheme: 'sms',
-              body: inviteText,
-            );
+            final uri = Uri.parse('sms:?body=${Uri.encodeComponent(inviteText)}');
             if (await canLaunchUrl(uri)) {
               await launchUrl(uri);
             } else {
-              final shareUri = Uri.parse('sms:?body=${Uri.encodeComponent(inviteText)}');
-              if (await canLaunchUrl(shareUri)) {
-                await launchUrl(shareUri);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Could not open messaging app')),
-                );
-              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Could not open messaging app')),
+              );
             }
           },
           icon: const Icon(Icons.message),
@@ -992,11 +984,9 @@ Future<void> _showInviteDialog(BuildContext context, AppState app) async {
         FilledButton.icon(
           onPressed: () async {
             Navigator.pop(context);
-            final uri = Uri(
-              scheme: 'mailto',
-              subject: 'Join me on SpendSense Bingo Leaderboard!',
-              body: inviteText,
-            );
+            final subject = Uri.encodeComponent('Join me on SpendSense Bingo Leaderboard!');
+            final body = Uri.encodeComponent(inviteText);
+            final uri = Uri.parse('mailto:?subject=$subject&body=$body');
             if (await canLaunchUrl(uri)) {
               await launchUrl(uri);
             } else {
