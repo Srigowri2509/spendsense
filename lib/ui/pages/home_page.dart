@@ -5,7 +5,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../controllers/rules_controller.dart';
 import '../../services/ad_service.dart';
 import '../theme.dart';
-import '../../models/app_rule.dart';
 import '../widgets/lock_card.dart';
 import '../widgets/group_card.dart';
 import '../widgets/fab_add.dart';
@@ -81,6 +80,18 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _handleWatchAd(String packageName) async {
     // Capture the messenger early to avoid using `context` after awaits.
     final messenger = ScaffoldMessenger.of(context);
+    
+    // Show unlock duration picker first
+    final duration = await showDialog<Duration>(
+      context: context,
+      builder: (_) => const _UnlockDurationDialog(),
+    );
+
+    if (duration == null || !mounted) return;
+
+    // Calculate number of ads needed (10 minutes per ad)
+    final adCount = (duration.inMinutes / 10).ceil();
+    
     if (!_adService.isRewardedAdReady) {
       messenger.showSnackBar(
         const SnackBar(content: Text("Ad is still loading. Please try again.")),
@@ -89,81 +100,72 @@ class _HomePageState extends ConsumerState<HomePage> {
       return;
     }
 
-    // Show unlock duration picker
-    final duration = await showDialog<Duration>(
-      context: context,
-      builder: (_) => const _UnlockDurationDialog(),
-    );
+    // Show progress dialog for multiple ads
+    int adsWatched = 0;
 
-    if (duration == null) return;
+    for (int i = 0; i < adCount; i++) {
+      if (!mounted) return;
 
-    final earned = await _adService.showRewardedAd();
-    
-  if (!mounted) return;
-    if (earned) {
-      await ref.read(rulesProvider.notifier).reduceLockBy(packageName, duration);
-
-      // Read updated rule
-      AppRule? after;
-      for (final r in ref.read(rulesProvider)) {
-        if (r.packageName == packageName) {
-          after = r;
-          break;
-        }
-      }
-
-      if (after != null) {
-        if (after.mode == LockMode.scheduled) {
-          // If remaining <= duration, controller sets a temp unlock until window end
-          if (after.tempUnlockUntil != null) {
-            messenger.showSnackBar(
-              SnackBar(
-                content: Text("Unlocked until end of scheduled window 🎉"),
-                backgroundColor: AppColors.mint,
-              ),
-            );
-          } else {
-            messenger.showSnackBar(
-              SnackBar(
-                content: Text("Temporarily unlocked for ${duration.inMinutes} minutes 🎉"),
-                backgroundColor: AppColors.mint,
-              ),
-            );
-          }
-        } else {
-          // Quick timer: either reduced remaining time or fully unlocked
-          if (!after.active) {
-            messenger.showSnackBar(
-              SnackBar(
-                content: Text("Timer ended — unlocked 🎉"),
-                backgroundColor: AppColors.mint,
-              ),
-            );
-          } else {
-            messenger.showSnackBar(
-              SnackBar(
-                content: Text("Reduced remaining time by ${duration.inMinutes} minutes 🎉"),
-                backgroundColor: AppColors.mint,
-              ),
-            );
-          }
-        }
-      } else {
-        // No rule found after operation — treat as unlocked
+      // Show progress if multiple ads
+      if (adCount > 1 && i > 0) {
         messenger.showSnackBar(
           SnackBar(
-            content: Text("Unlocked 🎉"),
-            backgroundColor: AppColors.mint,
+            content: Text("Watching ad ${i + 1} of $adCount..."),
+            duration: const Duration(seconds: 2),
           ),
         );
+        // Wait a bit before showing next ad
+        await Future.delayed(const Duration(seconds: 1));
       }
-    } else if (mounted) {
+
+      if (!_adService.isRewardedAdReady) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text("Ad is loading. Please wait...")),
+        );
+        await _adService.loadRewardedAd();
+        if (!mounted) return;
+      }
+
+      final earned = await _adService.showRewardedAd();
+      
+      if (!mounted) return;
+
+      if (earned) {
+        adsWatched++;
+        // Preload next ad if there are more to watch
+        if (i < adCount - 1) {
+          _adService.loadRewardedAd();
+        }
+      } else {
+        // User didn't watch the ad fully
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text("You must watch the full ad to unlock"),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+    }
+
+    // All ads watched successfully
+    if (adsWatched == adCount && mounted) {
+      // Unlock for the full requested duration
+      await ref.read(rulesProvider.notifier).setTempUnlock(packageName, duration);
+      
       messenger.showSnackBar(
-        const SnackBar(content: Text("You must watch the full ad to unlock")),
+        SnackBar(
+          content: Text(
+            "Unlocked for ${duration.inMinutes} minute${duration.inMinutes > 1 ? 's' : ''} 🎉\n"
+            "Watched $adCount ad${adCount > 1 ? 's' : ''}",
+          ),
+          backgroundColor: AppColors.mint,
+          duration: const Duration(seconds: 4),
+        ),
       );
     }
 
-    // Preload next ad
+    // Preload next ad for future use
     _adService.loadRewardedAd();
   }
 }
@@ -290,14 +292,27 @@ class _UnlockDurationDialog extends StatefulWidget {
 class _UnlockDurationDialogState extends State<_UnlockDurationDialog> {
   Duration selected = const Duration(minutes: 10);
 
+  int _getAdCount(Duration duration) => (duration.inMinutes / 10).ceil();
+
   @override
   Widget build(BuildContext context) {
+    final adCount = _getAdCount(selected);
     return AlertDialog(
       title: const Text("Unlock Duration"),
       content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("How long do you need the app unlocked?"),
+          const Text("How long do you want to unlock the app?"),
+          const SizedBox(height: 8),
+          Text(
+            "You'll need to watch $adCount ad${adCount > 1 ? 's' : ''} (10 min per ad)",
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.ink.withValues(alpha: 150),
+              fontStyle: FontStyle.italic,
+            ),
+          ),
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
@@ -306,6 +321,7 @@ class _UnlockDurationDialogState extends State<_UnlockDurationDialog> {
               _durationChip(const Duration(minutes: 10)),
               _durationChip(const Duration(minutes: 20)),
               _durationChip(const Duration(minutes: 30)),
+              _durationChip(const Duration(minutes: 60)),
             ],
           ),
         ],
@@ -320,9 +336,9 @@ class _UnlockDurationDialogState extends State<_UnlockDurationDialog> {
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.accent,
           ),
-          child: const Text(
-            "Continue",
-            style: TextStyle(color: Colors.white),
+          child: Text(
+            "Watch $adCount Ad${adCount > 1 ? 's' : ''}",
+            style: const TextStyle(color: Colors.white),
           ),
         ),
       ],
@@ -330,8 +346,18 @@ class _UnlockDurationDialogState extends State<_UnlockDurationDialog> {
   }
 
   Widget _durationChip(Duration d) {
+    final adCount = _getAdCount(d);
     return ChoiceChip(
-      label: Text("${d.inMinutes} min"),
+      label: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text("${d.inMinutes} min"),
+          Text(
+            "$adCount ad${adCount > 1 ? 's' : ''}",
+            style: const TextStyle(fontSize: 10),
+          ),
+        ],
+      ),
       selected: selected == d,
       onSelected: (_) => setState(() => selected = d),
       selectedColor: AppColors.chipBg,

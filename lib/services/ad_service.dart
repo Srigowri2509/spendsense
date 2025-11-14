@@ -9,13 +9,14 @@ class AdService {
 
   RewardedAd? _rewardedAd;
   bool _isRewardedAdReady = false;
+  LoadAdError? _lastLoadError;
 
-  // Test Ad Units - Replace with your real Ad Unit IDs in production
+  // Ad Unit IDs - Production
   String get rewardedAdUnitId {
     if (Platform.isAndroid) {
-      return 'ca-app-pub-3940256099942544/5224354917'; // Test ID
+      return 'ca-app-pub-6034518904177644/7479318191'; // Your Android Rewarded Ad Unit ID
     } else if (Platform.isIOS) {
-      return 'ca-app-pub-3940256099942544/1712485313'; // Test ID
+      return 'ca-app-pub-6034518904177644/7479318191'; // Use same or create iOS unit
     }
     return '';
   }
@@ -47,6 +48,8 @@ class AdService {
         onAdFailedToLoad: (error) {
           _rewardedAd = null;
           _isRewardedAdReady = false;
+          _lastLoadError = error;
+          print('AdMob: Failed to load rewarded ad: ${error.code} - ${error.message}');
         },
       ),
     );
@@ -71,6 +74,7 @@ class AdService {
   }
 
   bool get isRewardedAdReady => _isRewardedAdReady;
+  LoadAdError? get lastLoadError => _lastLoadError;
 
   void dispose() {
     _rewardedAd?.dispose();

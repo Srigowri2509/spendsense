@@ -69,16 +69,7 @@ class RulesController extends StateNotifier<List<AppRule>> {
   }
 
   Future<bool> tryRemove(AppRule r) async {
-    if (r.mode == LockMode.quick) {
-      if (r.active) return false;
-    } else {
-      final win = r.schedule!.currentWindow(DateTime.now());
-      if (win != null) {
-        final total = win.end.difference(win.start).inSeconds;
-        final elapsed = DateTime.now().difference(win.start).inSeconds;
-        if (elapsed < total / 2) return false;
-      }
-    }
+    // Allow removal at any time - no restrictions
     state = [...state]..removeWhere((e) => e.packageName == r.packageName);
     await store.writeAll(state, _groups);
     await _syncAndroidKeysForPackage(r.packageName);
@@ -160,7 +151,7 @@ class RulesController extends StateNotifier<List<AppRule>> {
         await notifications.zonedSchedule(
           DateTime.now().millisecondsSinceEpoch ~/ 1000,
           'Halfway done!',
-          'You\'re 50% through your lock window for ${rule.appName}',
+          'Halfway through your lock window for ${rule.appName}',
           tz.TZDateTime.from(halfway, tz.local),
           const NotificationDetails(
             android: AndroidNotificationDetails(
@@ -226,7 +217,8 @@ class RulesController extends StateNotifier<List<AppRule>> {
       if (msg != null && msg.trim().isNotEmpty) {
         await sp.setString(msgKey, msg.trim());
       } else {
-        await sp.remove(msgKey);
+        // Set default message if no custom message
+        await sp.setString(msgKey, "This app is locked. Stay focused! ✨");
       }
     } else {
       await sp.remove(lockKey);

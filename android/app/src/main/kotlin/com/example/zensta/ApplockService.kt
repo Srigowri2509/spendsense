@@ -69,12 +69,12 @@ class AppLockService : AccessibilityService() {
         
         // Set message
         val messageText = overlayView?.findViewById<TextView>(R.id.lock_message)
+        val defaultMessage = "This app is locked. Stay focused! ✨"
+        
         if (customMessage != null && customMessage.isNotEmpty()) {
             messageText?.text = customMessage
         } else {
-            val remainingMs = lockedUntil - System.currentTimeMillis()
-            val remainingMin = (remainingMs / 60000).toInt()
-            messageText?.text = "This app is locked for $remainingMin more minutes.\n\nStay focused! ✨"
+            messageText?.text = defaultMessage
         }
         
         // Close button

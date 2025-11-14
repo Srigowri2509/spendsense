@@ -208,18 +208,7 @@ class LockCard extends ConsumerWidget {
                   const Spacer(),
                   TextButton.icon(
                     onPressed: () async {
-                      final ok = await ref
-                          .read(rulesProvider.notifier)
-                          .tryRemove(rule);
-                      if (!ok && context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              "Too early to unlock. At least 50% of the schedule window must pass.",
-                            ),
-                          ),
-                        );
-                      }
+                      await ref.read(rulesProvider.notifier).tryRemove(rule);
                     },
                     icon: const Icon(Icons.delete_outline),
                     label: const Text("Remove"),

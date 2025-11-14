@@ -69,22 +69,9 @@ class AppRule {
     }
   }
 
-  // You can watch an ad to unlock only after at least 50% of the window/timer
-  // has elapsed. Use integer math on seconds to avoid rounding mismatches
-  // between the displayed percent (which may be rounded) and this check.
+  // Users can watch ads to unlock at any time when the lock is active
   bool get canWatchAdToUnlock {
-    if (mode == LockMode.quick) {
-      final total = (totalDuration ?? Duration(seconds: 1)).inSeconds;
-      final rem = remaining.inSeconds;
-      final elapsed = (total - rem);
-      return elapsed * 2 >= total;
-    } else {
-      final win = schedule!.currentWindow(DateTime.now());
-      if (win == null) return false;
-      final total = win.end.difference(win.start).inSeconds;
-      final elapsed = DateTime.now().difference(win.start).inSeconds;
-      return elapsed * 2 >= total;
-    }
+    return active;
   }
 
   Map<String, dynamic> toJson() => {
