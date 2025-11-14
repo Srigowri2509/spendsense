@@ -50,18 +50,27 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
   }
 
   Future<void> _requestPermission() async {
-    final smsService = SmsService();
-    final granted = await smsService.requestPermission();
-    
-    if (granted) {
-      setState(() => _hasPermission = true);
+    try {
+      final smsService = SmsService();
+      final granted = await smsService.requestPermission();
+      
+      if (granted) {
+        setState(() => _hasPermission = true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('SMS permission granted')),
+          );
+        }
+      } else {
+        if (mounted) {
+          _showPermissionDialog();
+        }
+      }
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('SMS permission granted')),
+          SnackBar(content: Text('Error requesting permission: $e')),
         );
-      }
-    } else {
-      if (mounted) {
         _showPermissionDialog();
       }
     }
@@ -73,7 +82,7 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('SMS Permission Required'),
         content: const Text(
-          'SpendWise needs SMS permission to read transaction messages and automatically import your expenses.\n\n'
+          'SpendSense needs SMS permission to read transaction messages and automatically import your expenses.\n\n'
           'We only read transaction-related SMS from payment apps and banks. Your SMS data is processed locally and never shared.',
         ),
         actions: [

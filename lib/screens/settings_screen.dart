@@ -7,6 +7,7 @@ import '../app_state.dart'; // formatCurrency + AppScope
 import '../widgets/colorful_background.dart';
 import 'sms_settings_screen.dart';
 import 'subscriptions_screen.dart';
+import 'notification_settings_screen.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -101,6 +102,13 @@ class SettingsPage extends StatelessWidget {
                 title: 'SMS Import',
                 subtitle: 'Auto-import from transaction SMS',
                 onTap: () => _push(context, const SmsSettingsScreen()),
+              ),
+              _ListDivider(cs),
+              _NavRow(
+                icon: Icons.notifications_outlined,
+                title: 'Subscription Notifications',
+                subtitle: 'Manage payment reminders',
+                onTap: () => _push(context, const _NotificationSettingsPage()),
               ),
               _ListDivider(cs),
               _NavRow(
@@ -758,6 +766,14 @@ class _SubscriptionsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const SubscriptionsScreen();
+  }
+}
+
+class _NotificationSettingsPage extends StatelessWidget {
+  const _NotificationSettingsPage();
+  @override
+  Widget build(BuildContext context) {
+    return const NotificationSettingsScreen();
   }
 }
 

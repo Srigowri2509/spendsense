@@ -513,25 +513,41 @@ class _BingoPanel extends StatefulWidget {
 
 class _BingoPanelState extends State<_BingoPanel> {
   String _tab = 'daily';
-  final Map<String, int> _lastCompletedCount = {'daily': 0, 'weekly': 0, 'monthly': 0};
+  final Map<String, Set<int>> _completedLines = {
+    'daily': {},
+    'weekly': {},
+    'monthly': {},
+  };
 
-  // Check if 3 tasks connect horizontally, vertically, or diagonally
-  bool _isBingo(List<bool> filled) {
-    const lines = [
-      [0, 1, 2], // row 1 (horizontal)
-      [3, 4, 5], // row 2 (horizontal)
-      [6, 7, 8], // row 3 (horizontal)
-      [0, 3, 6], // col 1 (vertical)
-      [1, 4, 7], // col 2 (vertical)
-      [2, 5, 8], // col 3 (vertical)
-      [0, 4, 8], // diag 1 (top-left to bottom-right)
-      [2, 4, 6], // diag 2 (top-right to bottom-left)
-    ];
-    for (final line in lines) {
+  // All possible bingo lines in a 3x3 grid
+  static const List<List<int>> _bingoLines = [
+    [0, 1, 2], // row 1 (horizontal)
+    [3, 4, 5], // row 2 (horizontal)
+    [6, 7, 8], // row 3 (horizontal)
+    [0, 3, 6], // col 1 (vertical)
+    [1, 4, 7], // col 2 (vertical)
+    [2, 5, 8], // col 3 (vertical)
+    [0, 4, 8], // diag 1 (top-left to bottom-right)
+    [2, 4, 6], // diag 2 (top-right to bottom-left)
+  ];
+
+  // Check which lines are complete and return newly completed line indices
+  List<int> _getNewlyCompletedLines(List<bool> filled) {
+    final newLines = <int>[];
+    final completedLinesForTab = _completedLines[_tab]!;
+    
+    for (int i = 0; i < _bingoLines.length; i++) {
+      final line = _bingoLines[i];
       // Check if all 3 positions in this line are filled
-      if (filled[line[0]] && filled[line[1]] && filled[line[2]]) return true;
+      if (filled[line[0]] && filled[line[1]] && filled[line[2]]) {
+        // If this line wasn't completed before, it's new!
+        if (!completedLinesForTab.contains(i)) {
+          newLines.add(i);
+        }
+      }
     }
-    return false;
+    
+    return newLines;
   }
 
   @override
@@ -555,19 +571,28 @@ class _BingoPanelState extends State<_BingoPanel> {
     final app = AppScope.of(context);
     final tasks = _taskMap[_tab]!;
     final filled = List<bool>.generate(9, (i) => i < tasks.length ? tasks[i].isComplete(app) : false);
-    final completed = filled.where((f) => f).length;
-    final lastCount = _lastCompletedCount[_tab] ?? 0;
-
-    if (completed > lastCount && _isBingo(filled)) {
-      app.incrementPuzzleCompleted();
-      app.rewardPoints += 20;
+    
+    // Check for newly completed lines
+    final newLines = _getNewlyCompletedLines(filled);
+    
+    if (newLines.isNotEmpty) {
+      // Mark these lines as completed
+      _completedLines[_tab]!.addAll(newLines);
+      
+      // Award points for each new bingo line
+      for (final _ in newLines) {
+        app.incrementPuzzleCompleted();
+        app.rewardPoints += 20;
+      }
+      
       if (mounted) {
+        final lineText = newLines.length == 1 ? 'Bingo!' : '${newLines.length}x Bingo!';
+        final pointsText = newLines.length == 1 ? '+20 points' : '+${newLines.length * 20} points';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bingo! 🎉 +20 points')),
+          SnackBar(content: Text('$lineText 🎉 $pointsText')),
         );
       }
     }
-    _lastCompletedCount[_tab] = completed;
   }
 
   @override
@@ -577,13 +602,10 @@ class _BingoPanelState extends State<_BingoPanel> {
     final tasks = _taskMap[_tab]!;
     final completed = tasks.where((t) => t.isComplete(app)).length;
 
-    // Check for bingo when completed count changes
-    final lastCount = _lastCompletedCount[_tab] ?? 0;
-    if (completed != lastCount) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _checkBingo();
-      });
-    }
+    // Always check for bingo on rebuild (in case tasks completed)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _checkBingo();
+    });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -605,12 +627,27 @@ class _BingoPanelState extends State<_BingoPanel> {
                 });
               },
             ),
-            Text(
-              '$completed / ${tasks.length}',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: cs.primary,
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$completed / ${tasks.length}',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: cs.primary,
+                        ),
                   ),
+                  Text(
+                    '${_completedLines[_tab]!.length} Bingo${_completedLines[_tab]!.length == 1 ? '' : 's'}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: cs.secondary,
+                          fontSize: 10,
+                        ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

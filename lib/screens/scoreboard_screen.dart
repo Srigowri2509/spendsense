@@ -18,12 +18,17 @@ class _ScoreboardPageState extends State<ScoreboardPage> {
     final app = AppScope.of(context);
 
     // Demo peers + the user; sort by completed desc
-    final players = <_Player>[
-      _Player('Aarav', 7),
-      _Player('Meera', 6),
-      _Player('Sid', 5),
-      _Player('You', app.puzzlesCompleted),
-    ]..sort((a, b) => b.completed.compareTo(a.completed));
+    // Only show demo players if user has completed at least one puzzle
+    final players = app.puzzlesCompleted > 0
+        ? (<_Player>[
+            _Player('Aarav', 7),
+            _Player('Meera', 6),
+            _Player('Sid', 5),
+            _Player('You', app.puzzlesCompleted),
+          ]..sort((a, b) => b.completed.compareTo(a.completed)))
+        : <_Player>[
+            _Player('You', 0),
+          ];
 
     // Top 3 for podium, rest below
     final podium = players.take(3).toList();
@@ -69,7 +74,34 @@ class _ScoreboardPageState extends State<ScoreboardPage> {
           ),
           const SizedBox(height: 12),
 
-          _PodiumRow(players: podium),
+          if (app.puzzlesCompleted == 0)
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    Icon(Icons.emoji_events_outlined, size: 48, color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No one yet!',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Complete your first bingo challenge to appear on the scoreboard',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            _PodiumRow(players: podium),
 
           if (rest.isNotEmpty) const SizedBox(height: 16),
           if (rest.isNotEmpty)
@@ -229,10 +261,7 @@ Future<void> _showInviteDialog(BuildContext context, AppState app) async {
         FilledButton.icon(
           onPressed: () async {
             Navigator.pop(context);
-            final uri = Uri(
-              scheme: 'sms',
-              body: inviteText,
-            );
+            final uri = Uri.parse('sms:?body=${Uri.encodeComponent(inviteText)}');
             if (await canLaunchUrl(uri)) {
               await launchUrl(uri);
             } else {
@@ -253,11 +282,7 @@ Future<void> _showInviteDialog(BuildContext context, AppState app) async {
         FilledButton.icon(
           onPressed: () async {
             Navigator.pop(context);
-            final uri = Uri(
-              scheme: 'mailto',
-              subject: 'Join me on SpendSense!',
-              body: inviteText,
-            );
+            final uri = Uri.parse('mailto:?subject=${Uri.encodeComponent('Join me on SpendSense!')}&body=${Uri.encodeComponent(inviteText)}');
             if (await canLaunchUrl(uri)) {
               await launchUrl(uri);
             } else {
@@ -277,25 +302,64 @@ Future<void> _showInviteDialog(BuildContext context, AppState app) async {
 Future<void> _inviteFromContacts(BuildContext context, String inviteText) async {
   Navigator.pop(context); // Close the first dialog
   
-  // Request contacts permission using flutter_contacts
-  final permissionGranted = await FlutterContacts.requestPermission();
-  if (!permissionGranted) {
+  try {
+    // Request contacts permission using flutter_contacts
+    final permissionGranted = await FlutterContacts.requestPermission();
+    
+    if (!permissionGranted) {
+      if (context.mounted) {
+        // Show dialog explaining how to grant permission
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Contacts Permission Required'),
+            content: const Text(
+              'To invite friends from your contacts, please:\n\n'
+              '1. Tap "Open Settings" below\n'
+              '2. Find SpendSense in the app list\n'
+              '3. Enable Contacts permission\n'
+              '4. Return to the app and try again',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  openAppSettings();
+                },
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+  } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Contacts permission is required to invite friends'),
-          action: SnackBarAction(
-            label: 'Open Settings',
-            onPressed: openAppSettings,
-          ),
-        ),
+        SnackBar(content: Text('Error requesting permission: $e')),
       );
     }
     return;
   }
 
   // Get contacts
-  final contacts = await FlutterContacts.getContacts(withProperties: true);
+  List<Contact> contacts;
+  try {
+    contacts = await FlutterContacts.getContacts(withProperties: true);
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading contacts: $e')),
+      );
+    }
+    return;
+  }
+  
   if (contacts.isEmpty) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -371,45 +435,54 @@ Future<void> _sendInvitesToContacts(
   List<Contact> contacts,
   String inviteText,
 ) async {
-  int successCount = 0;
-  int failCount = 0;
-
+  // Collect all phone numbers
+  final phoneNumbers = <String>[];
+  
   for (final contact in contacts) {
-    if (contact.phones.isEmpty) {
-      failCount++;
-      continue;
-    }
-
-    final phone = contact.phones.first.number.replaceAll(RegExp(r'[^\d+]'), '');
-    if (phone.isEmpty) {
-      failCount++;
-      continue;
-    }
-
-    try {
-      final uri = Uri.parse('sms:$phone?body=${Uri.encodeComponent(inviteText)}');
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-        successCount++;
-        // Small delay to avoid overwhelming the system
-        await Future.delayed(const Duration(milliseconds: 300));
-      } else {
-        failCount++;
+    if (contact.phones.isNotEmpty) {
+      final phone = contact.phones.first.number.replaceAll(RegExp(r'[^\d+]'), '');
+      if (phone.isNotEmpty) {
+        phoneNumbers.add(phone);
       }
-    } catch (e) {
-      failCount++;
     }
   }
 
-  if (context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          successCount > 0
-              ? 'Invited $successCount contact${successCount > 1 ? 's' : ''}'
-              : 'Failed to send invites',
-        ),
-      ),
-    );
+  if (phoneNumbers.isEmpty) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No valid phone numbers found')),
+      );
+    }
+    return;
+  }
+
+  try {
+    // Create SMS URI with multiple recipients (comma-separated)
+    final recipients = phoneNumbers.join(',');
+    final uri = Uri.parse('sms:$recipients?body=${Uri.encodeComponent(inviteText)}');
+    
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+      
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Opening SMS app with ${phoneNumbers.length} recipient${phoneNumbers.length > 1 ? 's' : ''}'),
+          ),
+        );
+      }
+    } else {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open SMS app')),
+        );
+      }
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${e.toString()}')),
+      );
+    }
   }
 }

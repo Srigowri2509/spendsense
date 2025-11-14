@@ -2,11 +2,17 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:characters/characters.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Services
 import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/expense_service.dart';
+import 'services/subscription_service.dart';
+import 'services/notification_service.dart';
+
+// Models
+import 'models/subscription.dart' as sub_model;
 
 /// Simple currency formatter (no intl)
 String formatCurrency(num n, {String symbol = '₹'}) {
@@ -66,29 +72,7 @@ class BankAccount {
   BankAccount({required this.id, required this.name, required this.type, this.linked = true});
 }
 
-class Subscription {
-  final String id;
-  final String name;
-  final double amount;
-  final int billingDay; // 1..31
-  final DateTime nextBillingDate; // Calculated next billing date
-  bool isFixed;
-  Subscription({
-    required this.id,
-    required this.name,
-    required this.amount,
-    required this.billingDay,
-    required DateTime nextBillingDate,
-    this.isFixed = true,
-  }) : nextBillingDate = nextBillingDate;
-  
-  // Get days remaining until next billing
-  int get daysRemaining {
-    final now = DateTime.now();
-    final diff = nextBillingDate.difference(now);
-    return diff.inDays;
-  }
-}
+// Subscription model moved to models/subscription.dart
 
 // Wallet with target (goal)
 class Wallet {
@@ -142,6 +126,8 @@ class AppState extends ChangeNotifier {
 
   late final AuthService _auth = AuthService(_api);
   late final ExpenseService _expensesApi = ExpenseService(_api);
+  late final SubscriptionService _subscriptionService = SubscriptionService();
+  late final NotificationService _notificationService = NotificationService();
 
   String? _authToken; // JWT
   set authToken(String? token) {
@@ -158,9 +144,63 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       // Backend unreachable - user will see empty state
     }
+    
+    // Initialize notification service
+    await _notificationService.initialize();
+    
+    // Load subscriptions and notification settings
+    await _loadSubscriptions();
+    await _loadNotificationSettings();
+  }
+  
+  Future<void> _loadSubscriptions() async {
+    try {
+      // Check if migration is needed
+      final needsMigration = await _checkAndMigrateSubscriptions();
+      
+      final loaded = await _subscriptionService.loadSubscriptions();
+      subscriptions.clear();
+      subscriptions.addAll(loaded);
+      
+      if (needsMigration && loaded.isEmpty) {
+        // If migration was needed but no data, user needs to re-add subscriptions
+        debugPrint('Migration completed - users should re-add subscriptions');
+      }
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading subscriptions: $e');
+    }
+  }
+  
+  Future<bool> _checkAndMigrateSubscriptions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final migrationDone = prefs.getBool('subscription_migration_done') ?? false;
+      
+      if (!migrationDone) {
+        await prefs.setBool('subscription_migration_done', true);
+        return true;
+      }
+      
+      return false;
+    } catch (e) {
+      debugPrint('Error checking migration: $e');
+      return false;
+    }
+  }
+  
+  Future<void> _loadNotificationSettings() async {
+    try {
+      _notificationSettings = await _notificationService.getNotificationSettings();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading notification settings: $e');
+    }
   }
 
   ApiClient get api => _api;
+  NotificationService get notificationService => _notificationService;
 
   // ----- USER PROFILE -----
   bool isSignedIn = false;
@@ -533,24 +573,8 @@ class AppState extends ChangeNotifier {
 
   final List<TransactionItem> transactions = [];
 
-  final List<Subscription> subscriptions = [
-    Subscription(
-      id: 'netflix',
-      name: 'Netflix',
-      amount: 500,
-      billingDay: 2,
-      nextBillingDate: DateTime.now().add(const Duration(days: 5)),
-      isFixed: true,
-    ),
-    Subscription(
-      id: 'music',
-      name: 'Music Service',
-      amount: 199,
-      billingDay: 12,
-      nextBillingDate: DateTime.now().add(const Duration(days: 15)),
-      isFixed: true,
-    ),
-  ];
+  final List<sub_model.Subscription> subscriptions = [];
+  NotificationSettings _notificationSettings = NotificationSettings();
 
   final List<Wallet> wallets = [
     Wallet(id: 'emg', name: 'Emergency', icon: Icons.health_and_safety_outlined, color: Color(0xFF5B8DEF), balance: 23000, target: 35000),
@@ -679,8 +703,48 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ----- SUBSCRIPTION COMPUTED PROPERTIES -----
+  
+  List<sub_model.Subscription> get upcomingSubscriptions =>
+      _subscriptionService.getUpcomingSubscriptions(subscriptions, 30);
+  
+  List<sub_model.Subscription> get overdueSubscriptions =>
+      _subscriptionService.getOverdueSubscriptions(subscriptions);
+  
+  Map<sub_model.SubscriptionCategory, List<sub_model.Subscription>> get subscriptionsByCategory {
+    final map = <sub_model.SubscriptionCategory, List<sub_model.Subscription>>{};
+    for (final category in sub_model.SubscriptionCategory.values) {
+      map[category] = _subscriptionService.getSubscriptionsByCategory(subscriptions, category);
+    }
+    return map;
+  }
+  
+  Map<sub_model.BillingCycle, double> get costBreakdown =>
+      _subscriptionService.getCostBreakdown(subscriptions);
+  
+  double get totalMonthlyCost =>
+      _subscriptionService.calculateMonthlyCost(subscriptions);
+  
+  double get totalYearlyCost =>
+      _subscriptionService.calculateYearlyCost(subscriptions);
+  
+  double get totalQuarterlyCost =>
+      _subscriptionService.calculateQuarterlyCost(subscriptions);
+  
   double get fixedMonthlyTotal => subscriptions.where((s) => s.isFixed).fold(0.0, (a, s) => a + s.amount);
   double get savingsTargetAfterFixed => (monthlySavingsTarget - fixedMonthlyTotal);
+  
+  NotificationSettings get notificationSettings => _notificationSettings;
+  
+  Future<void> updateNotificationSettings(NotificationSettings settings) async {
+    _notificationSettings = settings;
+    await _notificationService.updateNotificationSettings(settings);
+    
+    // Reschedule all notifications with new settings
+    await _notificationService.rescheduleAllNotifications(subscriptions, settings);
+    
+    notifyListeners();
+  }
 
   double get moneyLeftToSpend => (monthlyBudget - totalSpentThisMonth);
   double get moneyLeftRatio => monthlyBudget <= 0 ? 0 : (moneyLeftToSpend / monthlyBudget).clamp(0, 1);
@@ -694,39 +758,18 @@ class AppState extends ChangeNotifier {
     return totalSpentThisMonth <= expected;
   }
 
-  DateTime _nextDue(int day) {
-    final now = DateTime.now();
-    final days = DateUtils.getDaysInMonth(now.year, now.month);
-    final d = day.clamp(1, days);
-    final cand = DateTime(now.year, now.month, d);
-    if (cand.isBefore(DateTime(now.year, now.month, now.day))) {
-      final next = now.month == 12 ? DateTime(now.year + 1, 1, 1) : DateTime(now.year, now.month + 1, 1);
-      final ndays = DateUtils.getDaysInMonth(next.year, next.month);
-      final nd = day.clamp(1, ndays);
-      return DateTime(next.year, next.month, nd);
-    }
-    return cand;
-  }
-
-  List<({Subscription sub, DateTime due})> get upcomingBills {
-    final list = <({Subscription sub, DateTime due})>[];
+  List<({sub_model.Subscription sub, DateTime due})> get upcomingBills {
+    final list = <({sub_model.Subscription sub, DateTime due})>[];
     for (final s in subscriptions) {
-      list.add((sub: s, due: _nextDue(s.billingDay)));
+      list.add((sub: s, due: s.nextBillingDate));
     }
     list.sort((a, b) => a.due.compareTo(b.due));
     return list.take(3).toList();
   }
 
   // Get subscriptions due tomorrow (for notifications - 1 day before payment)
-  List<Subscription> get subscriptionsDueTomorrow {
-    final tomorrow = DateTime.now().add(const Duration(days: 1));
-    final tomorrowDate = DateTime(tomorrow.year, tomorrow.month, tomorrow.day);
-    
-    return subscriptions.where((sub) {
-      final dueDate = _nextDue(sub.billingDay);
-      final dueDateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
-      return dueDateOnly == tomorrowDate;
-    }).toList();
+  List<sub_model.Subscription> get subscriptionsDueTomorrow {
+    return subscriptions.where((sub) => sub.isDueTomorrow).toList();
   }
 
   // ----- ACTIONS (NOW WIRED TO BACKEND) -----
@@ -830,32 +873,128 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addSubscription({
+  Future<void> addSubscription({
     required String name,
     required double amount,
+    required sub_model.BillingCycle billingCycle,
+    required DateTime startDate,
     required int billingDay,
-    required int daysUntilNextBilling,
     bool isFixed = true,
-  }) {
-    // Calculate next billing date from today + days until next billing
-    final nextBillingDate = DateTime.now().add(Duration(days: daysUntilNextBilling));
+    sub_model.SubscriptionCategory category = sub_model.SubscriptionCategory.other,
+  }) async {
+    // Calculate next billing date using the service
+    final nextBillingDate = _subscriptionService.calculateNextBillingDate(
+      startDate: startDate,
+      cycle: billingCycle,
+      billingDay: billingDay,
+    );
     
-    subscriptions.add(Subscription(
+    final subscription = sub_model.Subscription(
       id: UniqueKey().toString(),
       name: name,
       amount: amount,
+      billingCycle: billingCycle,
+      startDate: startDate,
       billingDay: billingDay,
       nextBillingDate: nextBillingDate,
       isFixed: isFixed,
-    ));
+      category: category,
+    );
+    
+    subscriptions.add(subscription);
+    
+    // Save to storage
+    await _subscriptionService.saveSubscriptions(subscriptions);
+    
+    // Schedule notifications
+    await _notificationService.scheduleSubscriptionNotifications(
+      subscription,
+      _notificationSettings,
+    );
+    
     _markBingoEvent('subscriptions_viewed', notify: false);
     _completeTask(UnlockTaskType.addSubscription);
+    notifyListeners();
+  }
+
+  Future<void> updateSubscription(sub_model.Subscription subscription) async {
+    final index = subscriptions.indexWhere((s) => s.id == subscription.id);
+    if (index == -1) return;
+    
+    // Recalculate next billing date
+    final nextBillingDate = _subscriptionService.calculateNextBillingDate(
+      startDate: subscription.startDate,
+      cycle: subscription.billingCycle,
+      billingDay: subscription.billingDay,
+    );
+    
+    final updated = subscription.copyWith(nextBillingDate: nextBillingDate);
+    subscriptions[index] = updated;
+    
+    // Save to storage
+    await _subscriptionService.saveSubscriptions(subscriptions);
+    
+    // Reschedule notifications
+    await _notificationService.cancelSubscriptionNotifications(subscription.id);
+    await _notificationService.scheduleSubscriptionNotifications(
+      updated,
+      _notificationSettings,
+    );
+    
+    notifyListeners();
+  }
+
+  Future<void> deleteSubscription(String id) async {
+    subscriptions.removeWhere((s) => s.id == id);
+    
+    // Save to storage
+    await _subscriptionService.saveSubscriptions(subscriptions);
+    
+    // Cancel notifications
+    await _notificationService.cancelSubscriptionNotifications(id);
+    
+    notifyListeners();
+  }
+
+  Future<void> markSubscriptionAsPaid(String id) async {
+    final index = subscriptions.indexWhere((s) => s.id == id);
+    if (index == -1) return;
+    
+    final subscription = subscriptions[index];
+    final now = DateTime.now();
+    
+    // Calculate next billing date from current next billing date
+    final nextBillingDate = _subscriptionService.calculateNextBillingDate(
+      startDate: subscription.nextBillingDate,
+      cycle: subscription.billingCycle,
+      billingDay: subscription.billingDay,
+      fromDate: subscription.nextBillingDate,
+    );
+    
+    final updated = subscription.copyWith(
+      lastPaymentDate: now,
+      nextBillingDate: nextBillingDate,
+    );
+    
+    subscriptions[index] = updated;
+    
+    // Save to storage
+    await _subscriptionService.saveSubscriptions(subscriptions);
+    
+    // Reschedule notifications
+    await _notificationService.cancelSubscriptionNotifications(subscription.id);
+    await _notificationService.scheduleSubscriptionNotifications(
+      updated,
+      _notificationSettings,
+    );
+    
     notifyListeners();
   }
 
   void setSubscriptionFixed(String id, bool v) {
     final s = subscriptions.firstWhere((e) => e.id == id);
     s.isFixed = v;
+    _subscriptionService.saveSubscriptions(subscriptions);
     _markBingoEvent('subscriptions_viewed', notify: false);
     if (v) _completeTask(UnlockTaskType.markSubscriptionFixed);
     notifyListeners();

@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Spendwise</string>
+	<string>SpendSense</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSContactsUsageDescription</key>
+	<string>SpendSense needs access to your contacts to invite friends to compete on the scoreboard.</string>
+	<key>NSSMSUsageDescription</key>
+	<string>SpendSense needs access to your SMS messages to automatically import transaction details from payment apps and banks. Your SMS data is processed locally and never shared.</string>
 </dict>
 </plist>
